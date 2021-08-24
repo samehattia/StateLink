@@ -1,5 +1,5 @@
 
-extern void csr_sim_register(), axi_sniffer_register();
+extern void csr_sim_register(), axi_sniffer_register(), axis_sniffer_register();
 
 /**
  * Required structure for initializing VPI routines.
@@ -7,5 +7,6 @@ extern void csr_sim_register(), axi_sniffer_register();
 void (*vlog_startup_routines[])() = {
 	csr_sim_register,
 	axi_sniffer_register,
+	axis_sniffer_register,
 	0
 };

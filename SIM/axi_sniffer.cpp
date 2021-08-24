@@ -10,11 +10,7 @@
 #include <limits>
 #include <chrono>
 #include "axi_sniffer.h"
-
-#include <stdio.h> 
-#include <fcntl.h> 
-#include <sys/stat.h> 
-#include <unistd.h> 
+#include "message.h"
 
 using namespace std;
 
@@ -26,85 +22,39 @@ queue<string> data_write_transactions; // wdata
 queue<string> data_read_transactions; // rdata_packet
 queue<bool> response_write_transactions;
 
-#define SIM_TO_HW_PIPENAME "/tmp/sim_to_hw_pipe"
-#define HW_TO_SIM_PIPENAME "/tmp/hw_to_sim_pipe"
+#define AXI_SIM_TO_HW_PIPENAME "/tmp/axi_sim_to_hw_pipe"
+#define AXI_HW_TO_SIM_PIPENAME "/tmp/axi_hw_to_sim_pipe"
 
-#define MAX_RECV_MSG_LEN 1000
-#define JTAG_AXI_TO_TASK_AXI_WIDTH_RATIO 2 
+#define JTAG_AXI_TO_TASK_AXI_WIDTH_RATIO 0.0625 //0.0625 1 2
 
-int SIM_TO_HW_PIPE = -1;
-int HW_TO_SIM_PIPE = -1;
+int AXI_SIM_TO_HW_PIPE = -1;
+int AXI_HW_TO_SIM_PIPE = -1;
 
 int AXI_DATA_READ_COUNTER = 0;
 string AXI_DATA_READ_PACKET;
 
-bool HW_TO_SIM_PIPE_WAITING_MSG_READ_FLAG = true;
-bool HW_TO_SIM_PIPE_WAITING_MSG_WRITE_FLAG = true;
+bool AXI_HW_TO_SIM_PIPE_WAITING_MSG_READ_FLAG = true;
+bool AXI_HW_TO_SIM_PIPE_WAITING_MSG_WRITE_FLAG = true;
 
 mutex mtx;
 
-void setup_recv_pipe() {
-	// Create FIFO
-	mkfifo(HW_TO_SIM_PIPENAME, 0666);
+void process_axi_message(string message) {
 
-	// Open FIFO for read only
-	vpi_printf( (char*)"  Opening HW_TO_SIM_PIPE\n");
-	HW_TO_SIM_PIPE = open(HW_TO_SIM_PIPENAME, O_RDONLY);
-}
-
-void setup_send_pipe() {
-	// Create FIFO
-	mkfifo(SIM_TO_HW_PIPENAME, 0666); 
-
-	// Open FIFO for write only
-	vpi_printf( (char*)"  Opening SIM_TO_HW_PIPE\n");
-	SIM_TO_HW_PIPE = open(SIM_TO_HW_PIPENAME, O_WRONLY);
-}
-
-void recv_message_thread() {
-
-	char message_c_str[MAX_RECV_MSG_LEN + 1];
-
-	int bytes_read = read(HW_TO_SIM_PIPE, message_c_str, MAX_RECV_MSG_LEN);
-
-	if (bytes_read == 0) {
-		vpi_printf( (char*)"\tHW_TO_SIM_PIPE is not open\n");
-	} 
-	else {
-		// Check if the received message is READ DATA
-		string message = message_c_str;
-		if (message.find("READ DATA") != string::npos) {
-			mtx.lock();
-			data_read_transactions.push(message.substr(1 + message.find_last_of(" ")));
-			mtx.unlock();
-		}
-		else if (message.find("WRITE DATA") != string::npos) {
-			mtx.lock();
-			response_write_transactions.push(true);
-			mtx.unlock();
-		}
-		else {
-			cout << message << endl;
-			vpi_printf( (char*)"\tInvalid message from HW_TO_SIM_PIPE\n");
-		}
+	// Check if the received message is READ DATA
+	if (message.find("READ DATA") != string::npos) {
+		mtx.lock();
+		data_read_transactions.push(message.substr(1 + message.find_last_of(" ")));
+		mtx.unlock();
 	}
-}
-
-void recv_message() {
-	if (HW_TO_SIM_PIPE == -1)
-		return;
-
-	// Reading from the pipe is a blocking call,
-	// Run it in a thread in order not to block the simulation, 
-	thread recv_thread = thread(recv_message_thread);
-	recv_thread.detach();
-}
-
-void send_message(string message) {
-	if (SIM_TO_HW_PIPE == -1)
-		return;
-
-	write(SIM_TO_HW_PIPE, message.c_str(), message.length()+1);
+	else if (message.find("WRITE DATA") != string::npos) {
+		mtx.lock();
+		response_write_transactions.push(true);
+		mtx.unlock();
+	}
+	else {
+		cout << message << endl;
+		vpi_printf( (char*)"\tInvalid message from AXI_HW_TO_SIM_PIPE\n");
+	}
 }
 
 void response_write_transaction(string axi_interface_name) {
@@ -113,14 +63,17 @@ void response_write_transaction(string axi_interface_name) {
 
 	while(response_write_transactions.empty()) {
 
-		if (HW_TO_SIM_PIPE_WAITING_MSG_WRITE_FLAG) {
-			vpi_printf( (char*)"\tWaiting for HW_TO_SIM_PIPE write response (This message is printed once)\n");
-			HW_TO_SIM_PIPE_WAITING_MSG_WRITE_FLAG = false;
+		if (AXI_HW_TO_SIM_PIPE_WAITING_MSG_WRITE_FLAG) {
+			vpi_printf( (char*)"\tWaiting for AXI_HW_TO_SIM_PIPE write response (This message is printed once)\n");
+			AXI_HW_TO_SIM_PIPE_WAITING_MSG_WRITE_FLAG = false;
 		}
 
 		wait_counter++;
 		if (wait_counter == max_wait) {
-			vpi_printf( (char*)"\tError: Extreme wait time for HW_TO_SIM_PIPE write response. Exiting\n");
+			s_vpi_time current_time;
+			current_time.type = vpiScaledRealTime;
+			vpi_get_time(axi_interface_map[axi_interface_name].bvalid, &current_time);
+			vpi_printf( (char*)"\tError: Extreme wait time for AXI_HW_TO_SIM_PIPE write response @ time %2.2f. Exiting\n", current_time.real);
 			vpi_control(vpiFinish, 1);
 		}
 	}
@@ -157,14 +110,14 @@ void data_read_transaction(string axi_interface_name) {
 
 		while(data_read_transactions.empty()) {
 
-			if (HW_TO_SIM_PIPE_WAITING_MSG_READ_FLAG) {
-				vpi_printf( (char*)"\tWaiting for HW_TO_SIM_PIPE read response (This message is printed once)\n");
-				HW_TO_SIM_PIPE_WAITING_MSG_READ_FLAG = false;
+			if (AXI_HW_TO_SIM_PIPE_WAITING_MSG_READ_FLAG) {
+				vpi_printf( (char*)"\tWaiting for AXI_HW_TO_SIM_PIPE read response (This message is printed once)\n");
+				AXI_HW_TO_SIM_PIPE_WAITING_MSG_READ_FLAG = false;
 			}
 
 			wait_counter++;
 			if (wait_counter == max_wait) {
-				vpi_printf( (char*)"\tError: Extreme wait time for HW_TO_SIM_PIPE read response. Exiting\n");
+				vpi_printf( (char*)"\tError: Extreme wait time for AXI_HW_TO_SIM_PIPE read response. Exiting\n");
 				vpi_control(vpiFinish, 1);
 			}
 		}
@@ -225,10 +178,10 @@ void address_read_transaction(string axi_interface_name) {
 	address_read_transactions.push(make_pair(arlen_value, arsize_value));
 
 	// Message: R Address Len
-	string message = "R " + araddr_value + " " + to_string((arlen_value+1)/JTAG_AXI_TO_TASK_AXI_WIDTH_RATIO) + " ";
-	send_message(message);
+	string message = "R " + araddr_value + " " + to_string(int((arlen_value+1)/JTAG_AXI_TO_TASK_AXI_WIDTH_RATIO)) + " ";
+	send_message(AXI_SIM_TO_HW_PIPE, message);
 
-	recv_message();
+	recv_message(AXI_HW_TO_SIM_PIPE, process_axi_message);
 
 	//vpi_printf( (char*)"\tAXI AR Transaction on %s: ADDR=%s LEN=%d SIZE=%d BURST=%d\n", axi_interface_name.c_str(), araddr_value.c_str(), arlen_value, arsize_value, arburst_value);
 }
@@ -251,8 +204,13 @@ void data_write_transaction(string axi_interface_name) {
 	data_write_transactions.push(wdata_value);
 
 	if (wlast_value == 1) {
+		if (address_write_transactions.empty()) {
+			vpi_printf( (char*)"\tError: No AXI Address Specified. Exiting\n");
+			vpi_control(vpiFinish, 1);
+		}
+
 		// Message: W Address Len Data
-		string message = "W " + address_write_transactions.front().first + " " + to_string((address_write_transactions.front().second+1)/JTAG_AXI_TO_TASK_AXI_WIDTH_RATIO) + " ";
+		string message = "W " + address_write_transactions.front().first + " " + to_string(int((address_write_transactions.front().second+1)/JTAG_AXI_TO_TASK_AXI_WIDTH_RATIO)) + " ";
 		address_write_transactions.pop();
 
 		string wdata_packet = "";
@@ -262,9 +220,9 @@ void data_write_transaction(string axi_interface_name) {
 		}
 
 		message = message + wdata_packet;
-		send_message(message);
+		send_message(AXI_SIM_TO_HW_PIPE, message);
 
-		recv_message();
+		recv_message(AXI_HW_TO_SIM_PIPE, process_axi_message, true);
 	}
 
 	//vpi_printf( (char*)"\tAXI W Transaction on %s: DATA=%s LAST=%d\n", axi_interface_name.c_str(), wdata_value.c_str(), wlast_value);
@@ -314,7 +272,12 @@ bool check_active_channel(vpiHandle valid_signal, vpiHandle ready_signal) {
 	return false;
 }
 
+std::chrono::duration<double, milli> axi_sniffer_duration;
+int axi_clock_counter = 0;
+
 PLI_INT32 axi_sniffer(p_cb_data cb_data) {
+
+	chrono::high_resolution_clock::time_point t1 = chrono::high_resolution_clock::now();
 
 	string axi_interface_name = (char*)(cb_data->user_data);
 	axi_interface axi_interface_ports = axi_interface_map[axi_interface_name];
@@ -326,9 +289,12 @@ PLI_INT32 axi_sniffer(p_cb_data cb_data) {
 		if (check_active_channel(axi_interface_ports.rvalid, axi_interface_ports.rready)) {
 			data_read_transaction(axi_interface_name);
 		} 
-		else if (check_active_channel(axi_interface_ports.bvalid, axi_interface_ports.bready)) {
+		if (check_active_channel(axi_interface_ports.bvalid, axi_interface_ports.bready)) {
 			response_write_transaction(axi_interface_name);
 		}
+		chrono::high_resolution_clock::time_point t2 = chrono::high_resolution_clock::now();
+		std::chrono::duration<double, milli> fp_ms = t2 - t1;
+		axi_sniffer_duration += fp_ms;
 		return 0;
 	}
 
@@ -336,11 +302,21 @@ PLI_INT32 axi_sniffer(p_cb_data cb_data) {
 	if (check_active_channel(axi_interface_ports.awvalid, axi_interface_ports.awready)) {
 		address_write_transaction(axi_interface_name);
 	}
-	else if (check_active_channel(axi_interface_ports.arvalid, axi_interface_ports.arready)) {
-		address_read_transaction(axi_interface_name);
-	} 
-	else if (check_active_channel(axi_interface_ports.wvalid, axi_interface_ports.wready)) {
+	if (check_active_channel(axi_interface_ports.wvalid, axi_interface_ports.wready)) {
 		data_write_transaction(axi_interface_name);
+	}
+	if (check_active_channel(axi_interface_ports.arvalid, axi_interface_ports.arready)) {
+		address_read_transaction(axi_interface_name);
+	}
+
+	chrono::high_resolution_clock::time_point t2 = chrono::high_resolution_clock::now();
+	std::chrono::duration<double, milli> fp_ms = t2 - t1;
+	axi_sniffer_duration += fp_ms;
+
+	axi_clock_counter++;
+	if (axi_clock_counter == 100000) {
+		vpi_printf( (char*)"AXI  %f ms\n", axi_sniffer_duration.count());
+		axi_clock_counter = 0;
 	}
 
 	return 0;
@@ -397,19 +373,18 @@ PLI_INT32 setup_axi_sniffer(p_cb_data cb_data) {
 			}
 
 			// Check if the port is part of an AXI interface
-			else if (port_name.find("AXI") != string::npos || port_name.find("axi") != string::npos) {
+			else if (port_name.find("AXI_") != string::npos || port_name.find("axi_") != string::npos) {
 
 				int pos = port_name.find_last_of('_');
 				string axi_interface_name = port_name.substr(0,pos);
 				string axi_interface_port = port_name.substr(pos+1);				
 				std::transform(axi_interface_port.begin(), axi_interface_port.end(), axi_interface_port.begin(), [](unsigned char c){ return std::tolower(c); });
 
-				if (vpi_get(vpiSize, port_handle) == 1) {
-					// Get the internal net connected to that port
-					net_handle = vpi_handle(vpiLowConn, port_handle);
-				} 
-				else {
-					// For multi-bit ports, we cannot get the net connected to te port directly
+				// Get the internal net connected to that port
+				net_handle = vpi_handle(vpiLowConn, port_handle);
+				
+				// For multi-bit ports, we cannot get the net connected to te port directly
+				if (!net_handle) {
 					// Get an iterator of bits of the port
 					vpiHandle portbit_itr_handle = vpi_iterate(vpiBit, port_handle);
 
@@ -510,8 +485,8 @@ PLI_INT32 setup_axi_sniffer(p_cb_data cb_data) {
 		}
 	}
 
-	setup_send_pipe();
-	setup_recv_pipe();
+	AXI_SIM_TO_HW_PIPE = setup_send_channel(AXI_SIM_TO_HW_PIPENAME);
+	AXI_HW_TO_SIM_PIPE = setup_recv_channel(AXI_HW_TO_SIM_PIPENAME);
 	vpi_printf( (char*)"\n======================================\n" );
 
 	return 0;
