@@ -1,16 +1,17 @@
 set STATELINK_PATH [file dirname [file normalize [info script]]]
 set STATELINK_SCRIPT "$STATELINK_PATH/StateLink.tcl"
 
+# Default Parameters
+set DEVICE_NAME "xcku040_0"
+
+# User-defined Parameters (Overwrite the default parameters)
+source SM_Param.tcl
+
 source $STATELINK_SCRIPT
 
 # This function should be run if StateLink is invoked outside StateMover Console
 proc StateLink_Init {} {
-
-	# Default Parameters
-	set DEVICE_NAME "xcku040_0"
-
-	# User-defined Parameters (Overwrite the default parameters)
-	source SM_Param.tcl
+	global DEVICE_NAME FULL_PROBES
 
 	open_hw
 	connect_hw_server

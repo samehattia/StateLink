@@ -5,6 +5,14 @@ package require Thread
 set AXI_LINK 1
 set AXIS_LINK 1
 
+set AXI_JTAG_AXI_INSTANCE "*/StateLink_AXI_0/jtag_axi_0"
+set AXIS_JTAG_AXI_INSTANCE "*/StateLink_AXIS_0/jtag_axi_1"
+set AXIS_JTAG_AXI_LITE_INSTANCE "*/StateLink_AXIS_0/jtag_axi_0"
+
+set AXI_JTAG_AXI ""
+set AXIS_JTAG_AXI ""
+set AXIS_JTAG_AXI_LITE ""
+
 set AXI_SIM_TO_HW_PIPENAME "/tmp/axi_sim_to_hw_pipe"
 set AXI_HW_TO_SIM_PIPENAME "/tmp/axi_hw_to_sim_pipe"
 set SIM_TO_HW_PIPE_CLOSED 0
@@ -20,7 +28,7 @@ set AXIS_WRITE_COMMAND_COUNTER 0
 set AXIS_RX_THREAD 0
 
 proc read_axi_sim_to_hw_pipe pipe {
-	global SIM_TO_HW_PIPE_CLOSED AXI_HW_TO_SIM_PIPENAME AXI_WRITE_COMMAND_COUNTER AXI_READ_COMMAND_COUNTER
+	global SIM_TO_HW_PIPE_CLOSED AXI_HW_TO_SIM_PIPENAME AXI_WRITE_COMMAND_COUNTER AXI_READ_COMMAND_COUNTER AXI_JTAG_AXI
 
 	# TODO: check if multiple lines are read 
 	set data [split [read $pipe]]
@@ -30,13 +38,13 @@ proc read_axi_sim_to_hw_pipe pipe {
 		set waddr [lindex $data 1]
 		set wlen [lindex $data 2]
 		set wdata [lindex $data 3]
-		create_hw_axi_txn wr_txn [get_hw_axis hw_axi_3] -address $waddr -len $wlen -type write -force -data $wdata
+		create_hw_axi_txn wr_txn [get_hw_axis $AXI_JTAG_AXI] -address $waddr -len $wlen -type write -force -data $wdata
 		run_hw_axi -verbose wr_txn >> $AXI_HW_TO_SIM_PIPENAME
 		incr AXI_WRITE_COMMAND_COUNTER
 	} elseif { $command eq "R"} {
 		set raddr [lindex $data 1]
 		set rlen [lindex $data 2]
-		create_hw_axi_txn rd_txn [get_hw_axis hw_axi_3] -address $raddr -len $rlen -type read -force
+		create_hw_axi_txn rd_txn [get_hw_axis $AXI_JTAG_AXI] -address $raddr -len $rlen -type read -force
 		run_hw_axi -verbose rd_txn >> $AXI_HW_TO_SIM_PIPENAME
 		incr AXI_READ_COMMAND_COUNTER
 	}
@@ -59,7 +67,7 @@ proc start_axis_rx_thread {} {
 }
 
 proc read_axis_tx_sim_to_hw_pipe pipe {
-	global SIM_TO_HW_PIPE_CLOSED AXIS_TX_HW_TO_SIM_PIPENAME AXIS_WRITE_COMMAND_COUNTER
+	global SIM_TO_HW_PIPE_CLOSED AXIS_TX_HW_TO_SIM_PIPENAME AXIS_WRITE_COMMAND_COUNTER AXIS_JTAG_AXI AXIS_JTAG_AXI_LITE
 
 	# TODO: check if multiple lines are read 
 	set data [split [read $pipe]]
@@ -79,11 +87,11 @@ proc read_axis_tx_sim_to_hw_pipe pipe {
 		# run_hw_axi -verbose rd_txn
 
 		# Transmit Data FIFO Data (TDFD) @0x0 hw_axi_2
-		create_hw_axi_txn wr_txn_2 [get_hw_axis hw_axi_2] -address 44A0_0000 -len $burst_len -type write -force -data $packet_data
+		create_hw_axi_txn wr_txn_2 [get_hw_axis $AXIS_JTAG_AXI] -address 44A0_0000 -len $burst_len -type write -force -data $packet_data
 		run_hw_axi -quiet wr_txn_2
 
 		# Transmit Length Register (TLR) @0x14 <-- Input 0000003C
-		create_hw_axi_txn wr_txn [get_hw_axis hw_axi_1] -address 44A0_0014 -len 1 -type write -force -data $packet_len_hex
+		create_hw_axi_txn wr_txn [get_hw_axis $AXIS_JTAG_AXI_LITE] -address 44A0_0014 -len 1 -type write -force -data $packet_len_hex
 		run_hw_axi -verbose wr_txn >> $AXIS_TX_HW_TO_SIM_PIPENAME
 
 		incr AXIS_WRITE_COMMAND_COUNTER
@@ -126,7 +134,7 @@ proc open_axis_tx_sim_to_hw_pipe {} {
 }
 
 proc StateLink {} {
-	global AXI_LINK AXIS_LINK SIM_TO_HW_PIPE_CLOSED AXI_HW_TO_SIM_PIPENAME AXI_WRITE_COMMAND_COUNTER AXI_READ_COMMAND_COUNTER AXIS_TX_HW_TO_SIM_PIPENAME AXIS_WRITE_COMMAND_COUNTER AXIS_RX_THREAD
+	global DEVICE_NAME AXI_LINK AXIS_LINK SIM_TO_HW_PIPE_CLOSED AXI_HW_TO_SIM_PIPENAME AXI_WRITE_COMMAND_COUNTER AXI_READ_COMMAND_COUNTER AXIS_TX_HW_TO_SIM_PIPENAME AXIS_WRITE_COMMAND_COUNTER AXIS_RX_THREAD AXI_JTAG_AXI AXIS_JTAG_AXI AXIS_JTAG_AXI_LITE AXI_JTAG_AXI_INSTANCE AXIS_JTAG_AXI_INSTANCE AXIS_JTAG_AXI_LITE_INSTANCE
 	
 	set SIM_TO_HW_PIPE_CLOSED 0
 	set AXI_WRITE_COMMAND_COUNTER 0
@@ -139,6 +147,8 @@ proc StateLink {} {
 
 		puts "Opening AXI_HW_TO_SIM_PIPE"
 		set axi_hw_to_sim_pipe [open $AXI_HW_TO_SIM_PIPENAME w]
+
+		set AXI_JTAG_AXI [get_hw_axis -of_objects [get_hw_devices $DEVICE_NAME] -filter "CELL_NAME=~$AXI_JTAG_AXI_INSTANCE"]
 	}
 
 	if { $AXIS_LINK ne 0 } {
@@ -150,6 +160,9 @@ proc StateLink {} {
 
 		puts "Starting AXIS_RX_THREAD"
 		start_axis_rx_thread
+
+		set AXIS_JTAG_AXI [get_hw_axis -of_objects [get_hw_devices $DEVICE_NAME] -filter "CELL_NAME=~$AXIS_JTAG_AXI_INSTANCE"]
+		set AXIS_JTAG_AXI_LITE [get_hw_axis -of_objects [get_hw_devices $DEVICE_NAME] -filter "CELL_NAME=~$AXIS_JTAG_AXI_LITE_INSTANCE"]
 	}
 
 	puts "Entering Event Loop"
