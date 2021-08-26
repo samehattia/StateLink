@@ -81,13 +81,17 @@ proc read_axis_rx_hw_packet {axis_internal_pipe axis_rx_hw_to_sim_pipe} {
 		set burst_len [expr {$packet_len / 8.0}]
 		set burst_len [expr {ceil($burst_len)}]
 		set burst_len [expr {int($burst_len)}]
-		
-		puts $axis_rx_hw_to_sim_pipe "L $packet_len\0"
-		flush $axis_rx_hw_to_sim_pipe
 
 		# Receive Data FIFO Data (TDFD) @0x1000 hw_axi_2 --> OUTPUT 0000000000000000000000000000000041612a000000deadbeef0000000000000000000000000a0000000000000801000180220825da924537d0020100350a00
 		create_hw_axi_txn rd_txn_2 [get_hw_axis $AXIS_JTAG_AXI] -address 44A0_1000 -len $burst_len -type read -force
-		run_hw_axi -verbose rd_txn_2 >> $AXIS_RX_HW_TO_SIM_PIPENAME
+		run_hw_axi -verbose rd_txn_2 >> $AXIS_INTERNAL_PIPENAME
+
+		set data [split [read $axis_internal_pipe]]
+		set packet [lindex $data 6]
+
+		puts $axis_rx_hw_to_sim_pipe "R $packet_len $packet\0"
+		flush $axis_rx_hw_to_sim_pipe
+
 		incr AXIS_READ_COMMAND_COUNTER
 	}
 	

@@ -43,22 +43,20 @@ int AXIS_RX_PACKET_DELAY = 150; // minimum number of cycles between each packet
 int axis_rx_packet_delay_counter = AXIS_RX_FIRST_PACKET_DELAY;
 
 mutex axis_mtx;
-mutex axis_mtx_2;
 
 int axis_rx_counter = 0;
 int axis_tx_counter = 0;
 
 void process_axis_rx_message(string message) {
 
-	if (message[0] == 'L') {
-		axis_mtx_2.lock();
-		rx_transaction_length.push(message.substr(2));
-		axis_mtx_2.unlock();
-	}
-	// Check if the received message is READ DATA
-	else if (message.find("READ DATA") != string::npos) {
+	// Check if the received message is "R packet_length packet_data"
+	if (message[0] == 'R' && message[1] == ' ') {
 		axis_mtx.lock();
-		rx_transactions.push(message.substr(1 + message.find_last_of(" ")));
+
+		unsigned int pos = message.find_last_of(" ");
+		rx_transaction_length.push(message.substr(2, pos - 2));
+		rx_transactions.push(message.substr(1 + pos));
+
 		axis_mtx.unlock();
 	}
 	else {
@@ -124,21 +122,14 @@ void axis_rx_transaction(string axis_interface_name) {
 		}
 
 		axis_mtx.lock();
+
 		axis_rx_hw_packet = rx_transactions.front();
 		rx_transactions.pop();
-		axis_mtx.unlock();
 
-		if (rx_transaction_length.empty()) {
-			vpi_printf( (char*)"\tError: No packet length from AXIS_RX_HW_TO_SIM_PIPE.\n");
-			vpi_control(vpiFinish, 1);
-		}
-
-		axis_mtx_2.lock();
 		axis_rx_hw_packet_length = stoi(rx_transaction_length.front());
 		rx_transaction_length.pop();
-		axis_mtx_2.unlock();
 
-		axis_rx_hw_packet = axis_rx_hw_packet.substr(0, axis_rx_hw_packet.find_first_of("\n"));
+		axis_mtx.unlock();
 	}
 
 	if (axis_rx_hw_packet_length > 0) {
@@ -259,26 +250,14 @@ void axis_rx_hw_transaction(string axis_interface_name) {
 		}		
 
 		axis_mtx.lock();
+
 		axis_rx_hw_packet = rx_transactions.front();
 		rx_transactions.pop();
-		axis_mtx.unlock();
 
-		if (rx_transaction_length.empty()) {
-			vpi_printf( (char*)"\tError: No packet length from AXIS_RX_HW_TO_SIM_PIPE.\n");
-			vpi_control(vpiFinish, 1);
-		}
-
-		axis_mtx_2.lock();
 		axis_rx_hw_packet_length = stoi(rx_transaction_length.front());
 		rx_transaction_length.pop();
-		axis_mtx_2.unlock();
 
-		if (axis_rx_hw_packet.find_first_of("\n") == string::npos) {
-			vpi_printf( (char*)"\tError: No endline in the message received from AXIS_RX_HW_TO_SIM_PIPE. %s\n", axis_rx_hw_packet.c_str());
-			vpi_control(vpiFinish, 1);
-		}
-
-		axis_rx_hw_packet = axis_rx_hw_packet.substr(0, axis_rx_hw_packet.find_first_of("\n"));
+		axis_mtx.unlock();
 
 		if (axis_rx_hw_packet_length > axis_rx_hw_packet.length()/2) {
 			vpi_printf( (char*)"\tError: Received Packet Length exceeds the actual length of the receieved packet from AXIS_RX_HW_TO_SIM_PIPE. Packet=%s axis_rx_hw_packet_length=%d axis_rx_hw_packet.length()=%d\n", axis_rx_hw_packet.c_str(), axis_rx_hw_packet_length, axis_rx_hw_packet.length());
