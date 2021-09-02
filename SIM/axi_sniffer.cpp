@@ -25,7 +25,7 @@ queue<bool> response_write_transactions;
 #define AXI_SIM_TO_HW_PIPENAME "/tmp/axi_sim_to_hw_pipe"
 #define AXI_HW_TO_SIM_PIPENAME "/tmp/axi_hw_to_sim_pipe"
 
-#define JTAG_AXI_TO_TASK_AXI_WIDTH_RATIO 0.0625 //0.0625 1 2
+#define JTAG_AXI_TO_TASK_AXI_WIDTH_RATIO 0.125 //0.0625 1 2
 
 int AXI_SIM_TO_HW_PIPE = -1;
 int AXI_HW_TO_SIM_PIPE = -1;

@@ -1,4 +1,4 @@
-set THREAD_LIB_PATH /usr/lib/tcltk/x86_64-linux-gnu/thread2.8.2
+set THREAD_LIB_PATH /usr/lib/tcltk/x86_64-linux-gnu/thread2.8.5
 lappend auto_path $THREAD_LIB_PATH
 package require Thread 
 

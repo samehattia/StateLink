@@ -9,7 +9,7 @@
 
 using namespace std;
 
-#define MAX_RECV_MSG_LEN 3000 //1500 MTU * 2 Hex
+#define MAX_RECV_MSG_LEN 5000 //1500 MTU * 2 Hex AND 256 Burst * 8 Bytes * 2 Hex
 
 int setup_recv_channel(string channel_name) {
 	// Create FIFO
