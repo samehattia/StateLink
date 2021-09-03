@@ -33,7 +33,7 @@ int setup_send_channel(string channel_name) {
 	return channel;
 }
 
-void recv_message_thread(int channel, callback_fn process_recv_message_fn) {
+void recv_message_thread(int channel, callback_fn process_recv_message_fn, void* user_data) {
 
 	char message_c_str[MAX_RECV_MSG_LEN + 1];
 
@@ -43,22 +43,22 @@ void recv_message_thread(int channel, callback_fn process_recv_message_fn) {
 		vpi_printf( (char*)"\tHW_TO_SIM_PIPE is not open\n");
 	} 
 	else {
-		process_recv_message_fn(message_c_str);
+		process_recv_message_fn(message_c_str, user_data);
 	}
 }
 
-void recv_message(int channel, callback_fn process_recv_message_fn, bool block) {
+void recv_message(int channel, callback_fn process_recv_message_fn, void* user_data, bool block) {
 	if (channel == -1)
 		return;
 
 	// Reading from the pipe is a blocking call,
 	// Run it in a thread in order not to block the simulation, 
 	if (!block) {
-		thread recv_thread = thread(recv_message_thread, channel, process_recv_message_fn);
+		thread recv_thread = thread(recv_message_thread, channel, process_recv_message_fn, user_data);
 		recv_thread.detach();
 	}
 	else {
-		recv_message_thread(channel, process_recv_message_fn);
+		recv_message_thread(channel, process_recv_message_fn, user_data);
 	}
 }
 

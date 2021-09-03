@@ -1,262 +1,24 @@
 #include <iostream>
 #include <fstream>
 #include <algorithm>
+#include <unordered_map>
 #include <cstring>
-#include <queue>
-#include <stack>
 #include <utility>
-#include <thread>
-#include <mutex>
 #include <limits>
 #include <chrono>
+#include "vpi_user.h"
 #include "axi_sniffer.h"
+#include "axi_interface.h"
 #include "message.h"
 
-using namespace std;
+std::unordered_map<std::string,axi_interface> axi_interface_map;
 
-unordered_map<string,axi_interface> axi_interface_map;
-
-queue<pair<string,int>> address_write_transactions; // awaddr and awlen
-queue<pair<int,int>> address_read_transactions; // arlen and arsize
-queue<string> data_write_transactions; // wdata
-queue<string> data_read_transactions; // rdata_packet
-queue<bool> response_write_transactions;
-
-#define AXI_SIM_TO_HW_PIPENAME "/tmp/axi_sim_to_hw_pipe"
-#define AXI_HW_TO_SIM_PIPENAME "/tmp/axi_hw_to_sim_pipe"
-
-#define JTAG_AXI_TO_TASK_AXI_WIDTH_RATIO 0.125 //0.0625 1 2
-
-int AXI_SIM_TO_HW_PIPE = -1;
-int AXI_HW_TO_SIM_PIPE = -1;
-
-int AXI_DATA_READ_COUNTER = 0;
-string AXI_DATA_READ_PACKET;
-
-bool AXI_HW_TO_SIM_PIPE_WAITING_MSG_READ_FLAG = true;
-bool AXI_HW_TO_SIM_PIPE_WAITING_MSG_WRITE_FLAG = true;
-
-mutex mtx;
-
-void process_axi_message(string message) {
-
-	// Check if the received message is READ DATA
-	if (message.find("READ DATA") != string::npos) {
-		mtx.lock();
-		data_read_transactions.push(message.substr(1 + message.find_last_of(" ")));
-		mtx.unlock();
-	}
-	else if (message.find("WRITE DATA") != string::npos) {
-		mtx.lock();
-		response_write_transactions.push(true);
-		mtx.unlock();
-	}
-	else {
-		cout << message << endl;
-		vpi_printf( (char*)"\tInvalid message from AXI_HW_TO_SIM_PIPE\n");
-	}
-}
-
-void response_write_transaction(string axi_interface_name) {
-	unsigned int wait_counter = 0;
-	unsigned int max_wait = numeric_limits<unsigned int>::max();
-
-	while(response_write_transactions.empty()) {
-
-		if (AXI_HW_TO_SIM_PIPE_WAITING_MSG_WRITE_FLAG) {
-			vpi_printf( (char*)"\tWaiting for AXI_HW_TO_SIM_PIPE write response (This message is printed once)\n");
-			AXI_HW_TO_SIM_PIPE_WAITING_MSG_WRITE_FLAG = false;
-		}
-
-		wait_counter++;
-		if (wait_counter == max_wait) {
-			s_vpi_time current_time;
-			current_time.type = vpiScaledRealTime;
-			vpi_get_time(axi_interface_map[axi_interface_name].bvalid, &current_time);
-			vpi_printf( (char*)"\tError: Extreme wait time for AXI_HW_TO_SIM_PIPE write response @ time %2.2f. Exiting\n", current_time.real);
-			vpi_control(vpiFinish, 1);
-		}
-	}
-
-	mtx.lock();
-	response_write_transactions.pop();
-	mtx.unlock();
-}
-
-void data_read_transaction(string axi_interface_name) {
-
-	axi_interface axi_interface_ports = axi_interface_map[axi_interface_name];
-	
-	s_vpi_value current_value;
-	current_value.format = vpiHexStrVal;
-
-	vpi_get_value(axi_interface_ports.rdata, &current_value);
-	string rdata_value = current_value.value.str;
-
-	current_value.format = vpiIntVal;
-
-	vpi_get_value(axi_interface_ports.rlast, &current_value);
-	int rlast_value = current_value.value.integer;
-
-	// TODO: Since the queue is not thread safe and since we are alreadg waiting here for the read data
-	// the recv_message should be called here with no threads.
-	// But in this case, the jtag read in tcl should be done in a separate thread
-	// Otherwise, the tcl may block until we read the data here
-	
-	// If this is the first data beat, read the entire data packet from the board
-	if (AXI_DATA_READ_COUNTER == 0) {
-		unsigned int wait_counter = 0;
-		unsigned int max_wait = numeric_limits<unsigned int>::max();
-
-		while(data_read_transactions.empty()) {
-
-			if (AXI_HW_TO_SIM_PIPE_WAITING_MSG_READ_FLAG) {
-				vpi_printf( (char*)"\tWaiting for AXI_HW_TO_SIM_PIPE read response (This message is printed once)\n");
-				AXI_HW_TO_SIM_PIPE_WAITING_MSG_READ_FLAG = false;
-			}
-
-			wait_counter++;
-			if (wait_counter == max_wait) {
-				vpi_printf( (char*)"\tError: Extreme wait time for AXI_HW_TO_SIM_PIPE read response. Exiting\n");
-				vpi_control(vpiFinish, 1);
-			}
-		}
-
-		mtx.lock();
-		AXI_DATA_READ_PACKET = data_read_transactions.front();
-		data_read_transactions.pop();
-		mtx.unlock();
-	}
-
-	int arlen_value = address_read_transactions.front().first;
-	int arsize_value = address_read_transactions.front().second;
-
-	int data_beat_size = (1 << (arsize_value)) * 2; // number of bytes per beat * number of ASCII characters per data byte
-	int data_beat_loc = (arlen_value + 1 - AXI_DATA_READ_COUNTER - 1) * data_beat_size;
-	
-	string rdata_hardware_value = AXI_DATA_READ_PACKET.substr(data_beat_loc, data_beat_size);
-	
-	s_vpi_value hardware_value;
-	hardware_value.format = vpiHexStrVal;
-
-	hardware_value.value.str = new char [rdata_hardware_value.length() + 1];
-	strcpy(hardware_value.value.str, rdata_hardware_value.c_str());
-	vpi_put_value(axi_interface_ports.rdata, &hardware_value, NULL, vpiNoDelay);
-
-	AXI_DATA_READ_COUNTER++;
-
-	// If this is the last data beat, then the next beat is the start of a new packet
-	if (rlast_value) { 
-		AXI_DATA_READ_COUNTER = 0;
-		address_read_transactions.pop();
-	}
-
-	//vpi_printf( (char*)"\tAXI R Transaction on %s: DATA=%s HARDWARE_DATA=%s LAST=%d\n", axi_interface_name.c_str(), rdata_value.c_str(), rdata_hardware_value.c_str(), rlast_value);
-}
-
-void address_read_transaction(string axi_interface_name) {
-
-	axi_interface axi_interface_ports = axi_interface_map[axi_interface_name];
-	
-	s_vpi_value current_value;
-	current_value.format = vpiHexStrVal;
-
-	vpi_get_value(axi_interface_ports.araddr, &current_value);
-	string araddr_value = current_value.value.str;
-
-	current_value.format = vpiIntVal;
-
-	vpi_get_value(axi_interface_ports.arlen, &current_value);
-	int arlen_value = current_value.value.integer;
-
-	vpi_get_value(axi_interface_ports.arsize, &current_value);
-	int arsize_value = current_value.value.integer;
-
-	vpi_get_value(axi_interface_ports.arburst, &current_value);
-	int arburst_value = current_value.value.integer;
-
-	address_read_transactions.push(make_pair(arlen_value, arsize_value));
-
-	// Message: R Address Len
-	string message = "R " + araddr_value + " " + to_string(int((arlen_value+1)/JTAG_AXI_TO_TASK_AXI_WIDTH_RATIO)) + " ";
-	send_message(AXI_SIM_TO_HW_PIPE, message);
-
-	recv_message(AXI_HW_TO_SIM_PIPE, process_axi_message);
-
-	//vpi_printf( (char*)"\tAXI AR Transaction on %s: ADDR=%s LEN=%d SIZE=%d BURST=%d\n", axi_interface_name.c_str(), araddr_value.c_str(), arlen_value, arsize_value, arburst_value);
-}
-
-void data_write_transaction(string axi_interface_name) {
-
-	axi_interface axi_interface_ports = axi_interface_map[axi_interface_name];
-	
-	s_vpi_value current_value;
-	current_value.format = vpiHexStrVal;
-
-	vpi_get_value(axi_interface_ports.wdata, &current_value);
-	string wdata_value = current_value.value.str;
-
-	current_value.format = vpiIntVal;
-
-	vpi_get_value(axi_interface_ports.wlast, &current_value);
-	int wlast_value = current_value.value.integer;
-
-	data_write_transactions.push(wdata_value);
-
-	if (wlast_value == 1) {
-		if (address_write_transactions.empty()) {
-			vpi_printf( (char*)"\tError: No AXI Address Specified. Exiting\n");
-			vpi_control(vpiFinish, 1);
-		}
-
-		// Message: W Address Len Data
-		string message = "W " + address_write_transactions.front().first + " " + to_string(int((address_write_transactions.front().second+1)/JTAG_AXI_TO_TASK_AXI_WIDTH_RATIO)) + " ";
-		address_write_transactions.pop();
-
-		string wdata_packet = "";
-		while (!data_write_transactions.empty()) {
-			wdata_packet = data_write_transactions.front() + wdata_packet;
-			data_write_transactions.pop();
-		}
-
-		message = message + wdata_packet;
-		send_message(AXI_SIM_TO_HW_PIPE, message);
-
-		recv_message(AXI_HW_TO_SIM_PIPE, process_axi_message, true);
-	}
-
-	//vpi_printf( (char*)"\tAXI W Transaction on %s: DATA=%s LAST=%d\n", axi_interface_name.c_str(), wdata_value.c_str(), wlast_value);
-}
-
-void address_write_transaction(string axi_interface_name) {
-
-	axi_interface axi_interface_ports = axi_interface_map[axi_interface_name];
-	
-	s_vpi_value current_value;
-	current_value.format = vpiHexStrVal;
-
-	vpi_get_value(axi_interface_ports.awaddr, &current_value);
-	string awaddr_value = current_value.value.str;
-
-	current_value.format = vpiIntVal;
-
-	vpi_get_value(axi_interface_ports.awlen, &current_value);
-	int awlen_value = current_value.value.integer;
-
-	vpi_get_value(axi_interface_ports.awsize, &current_value);
-	int awsize_value = current_value.value.integer;
-
-	vpi_get_value(axi_interface_ports.awburst, &current_value);
-	int awburst_value = current_value.value.integer;
-
-	address_write_transactions.push(make_pair(awaddr_value, awlen_value));
-
-	//vpi_printf( (char*)"\tAXI AW Transaction on %s: ADDR=%s LEN=%d SIZE=%d BURST=%d\n", axi_interface_name.c_str(), awaddr_value.c_str(), awlen_value, awsize_value, awburst_value);
-}
+std::chrono::duration<double, std::milli> axi_sniffer_duration;
+int axi_clock_counter = 0;
 
 bool check_active_channel(vpiHandle valid_signal, vpiHandle ready_signal) {
 
-	string valid_value, ready_value;
+	std::string valid_value, ready_value;
 	s_vpi_value current_value;
 	current_value.format = vpiHexStrVal;
 
@@ -272,48 +34,45 @@ bool check_active_channel(vpiHandle valid_signal, vpiHandle ready_signal) {
 	return false;
 }
 
-std::chrono::duration<double, milli> axi_sniffer_duration;
-int axi_clock_counter = 0;
-
 PLI_INT32 axi_sniffer(p_cb_data cb_data) {
 
-	chrono::high_resolution_clock::time_point t1 = chrono::high_resolution_clock::now();
+	std::chrono::high_resolution_clock::time_point t1 = std::chrono::high_resolution_clock::now();
 
-	string axi_interface_name = (char*)(cb_data->user_data);
-	axi_interface axi_interface_ports = axi_interface_map[axi_interface_name];
+	std::string axi_interface_name = (char*)(cb_data->user_data);
+	axi_interface& axi_intf = axi_interface_map[axi_interface_name];
 
-	// if not a positive edge, we should abort
+	// The negative edge of a posedge clock
 	if (!cb_data->value->value.integer) {
 		// In order to have the read response ready by the next positive clock edge
 		// we are going to process the read response here
-		if (check_active_channel(axi_interface_ports.rvalid, axi_interface_ports.rready)) {
-			data_read_transaction(axi_interface_name);
+		if (check_active_channel(axi_intf.ports.rvalid, axi_intf.ports.rready)) {
+			axi_intf.data_read_transaction();
 		} 
-		if (check_active_channel(axi_interface_ports.bvalid, axi_interface_ports.bready)) {
-			response_write_transaction(axi_interface_name);
+		if (check_active_channel(axi_intf.ports.bvalid, axi_intf.ports.bready)) {
+			axi_intf.response_write_transaction();
 		}
-		chrono::high_resolution_clock::time_point t2 = chrono::high_resolution_clock::now();
-		std::chrono::duration<double, milli> fp_ms = t2 - t1;
-		axi_sniffer_duration += fp_ms;
-		return 0;
+	}
+	// The positve edge of a posedge clock
+	else {
+		// Check transactions on AW channel
+		if (check_active_channel(axi_intf.ports.awvalid, axi_intf.ports.awready)) {
+			axi_intf.address_write_transaction();
+		}
+		if (check_active_channel(axi_intf.ports.wvalid, axi_intf.ports.wready)) {
+			axi_intf.data_write_transaction();
+		}
+		if (check_active_channel(axi_intf.ports.arvalid, axi_intf.ports.arready)) {
+			axi_intf.address_read_transaction();
+		}
 	}
 
-	// Check transactions on AW channel
-	if (check_active_channel(axi_interface_ports.awvalid, axi_interface_ports.awready)) {
-		address_write_transaction(axi_interface_name);
-	}
-	if (check_active_channel(axi_interface_ports.wvalid, axi_interface_ports.wready)) {
-		data_write_transaction(axi_interface_name);
-	}
-	if (check_active_channel(axi_interface_ports.arvalid, axi_interface_ports.arready)) {
-		address_read_transaction(axi_interface_name);
-	}
-
-	chrono::high_resolution_clock::time_point t2 = chrono::high_resolution_clock::now();
-	std::chrono::duration<double, milli> fp_ms = t2 - t1;
+	std::chrono::high_resolution_clock::time_point t2 = std::chrono::high_resolution_clock::now();
+	std::chrono::duration<double, std::milli> fp_ms = t2 - t1;
 	axi_sniffer_duration += fp_ms;
 
-	axi_clock_counter++;
+	if (cb_data->value->value.integer)
+		axi_clock_counter++;
+
 	if (axi_clock_counter == 100000) {
 		vpi_printf( (char*)"AXI  %f ms\n", axi_sniffer_duration.count());
 		axi_clock_counter = 0;
@@ -324,19 +83,18 @@ PLI_INT32 axi_sniffer(p_cb_data cb_data) {
 
 PLI_INT32 setup_axi_sniffer(p_cb_data cb_data) {
 
-	string module_name;
-	fstream fs;
+	std::string module_name;
+	std::fstream fs;
 	vpiHandle mod_handle, port_handle, portbit_handle, net_handle, clk_handle;
 	int error_code;
 	s_vpi_error_info error_info;
-	axi_interface empty_interface = {0,0,0,0,0,0, 0,0,0,0,0, 0,0,0,0,0,0, 0,0,0,0, 0,0,0};
 
 	vpi_printf( (char*)"\n======================================\n" );
 	vpi_printf( (char*)"AXI Sniffer" );
 	vpi_printf( (char*)"\n======================================\n" );
 
 	// open parameters file for read
-	fs.open(PARAM_FILE_NAME, fstream::in);
+	fs.open(PARAM_FILE_NAME, std::fstream::in);
 	if (!fs.is_open()) 
 		vpi_printf( (char*)"File not found\n");
 	
@@ -362,10 +120,10 @@ PLI_INT32 setup_axi_sniffer(p_cb_data cb_data) {
 			vpi_printf( (char*)"  %s\n", error_info.message);
 
 		while (port_handle) {
-			string port_name = vpi_get_str(vpiName, port_handle);
+			std::string port_name = vpi_get_str(vpiName, port_handle);
 
 			// Check if it is a clock port
-			if (port_name.find("clk") != string::npos || port_name.find("CLK") != string::npos) {
+			if (port_name.find("clk") != std::string::npos || port_name.find("CLK") != std::string::npos) {
 				// Get the internal net connected to that port
 				clk_handle = vpi_handle(vpiLowConn, port_handle);
 
@@ -373,11 +131,11 @@ PLI_INT32 setup_axi_sniffer(p_cb_data cb_data) {
 			}
 
 			// Check if the port is part of an AXI interface
-			else if (port_name.find("AXI_") != string::npos || port_name.find("axi_") != string::npos) {
+			else if (port_name.find("AXI_") != std::string::npos || port_name.find("axi_") != std::string::npos) {
 
 				int pos = port_name.find_last_of('_');
-				string axi_interface_name = port_name.substr(0,pos);
-				string axi_interface_port = port_name.substr(pos+1);				
+				std::string axi_interface_name = port_name.substr(0,pos);
+				std::string axi_interface_port = port_name.substr(pos+1);				
 				std::transform(axi_interface_port.begin(), axi_interface_port.end(), axi_interface_port.begin(), [](unsigned char c){ return std::tolower(c); });
 
 				// Get the internal net connected to that port
@@ -400,62 +158,69 @@ PLI_INT32 setup_axi_sniffer(p_cb_data cb_data) {
 
 				// First time
 				if (axi_interface_map.find(axi_interface_name) == axi_interface_map.end()) {
-					axi_interface_map.emplace(axi_interface_name, empty_interface);
+					// The following line is equivalent to axi_interface_map.emplace(axi_interface_name, axi_interface(axi_interface_name))
+					// but it avoids the temporary creation of the object which requires calling the copy constructor to move it to the unordered_map
+					// The copy constructor of axi_interface is deleted, because it has mutex as a data member which is not copyable
+					axi_interface_map.emplace(std::piecewise_construct, std::forward_as_tuple(axi_interface_name), std::forward_as_tuple(axi_interface_name));
 					vpi_printf( (char*)"  AXI Interface Found: %s\n", axi_interface_name.c_str());
 				}
 
 				if (axi_interface_port == "araddr") 
-					axi_interface_map[axi_interface_name].araddr = net_handle;
+					axi_interface_map[axi_interface_name].ports.araddr = net_handle;
 				else if (axi_interface_port == "arvalid") 
-					axi_interface_map[axi_interface_name].arvalid = net_handle;
+					axi_interface_map[axi_interface_name].ports.arvalid = net_handle;
 				else if (axi_interface_port == "arready") 
-					axi_interface_map[axi_interface_name].arready = net_handle;
+					axi_interface_map[axi_interface_name].ports.arready = net_handle;
 				else if (axi_interface_port == "arlen") 
-					axi_interface_map[axi_interface_name].arlen = net_handle;
+					axi_interface_map[axi_interface_name].ports.arlen = net_handle;
 				else if (axi_interface_port == "arsize") 
-					axi_interface_map[axi_interface_name].arsize = net_handle;
+					axi_interface_map[axi_interface_name].ports.arsize = net_handle;
 				else if (axi_interface_port == "arburst") 
-					axi_interface_map[axi_interface_name].arburst = net_handle;
+					axi_interface_map[axi_interface_name].ports.arburst = net_handle;
 
-				else if (axi_interface_port == "rdata") 
-					axi_interface_map[axi_interface_name].rdata = net_handle;
+				else if (axi_interface_port == "rdata") {
+					axi_interface_map[axi_interface_name].ports.rdata = net_handle;
+					axi_interface_map[axi_interface_name].interface_width = vpi_get(vpiSize, net_handle);
+				}
 				else if (axi_interface_port == "rvalid") 
-					axi_interface_map[axi_interface_name].rvalid = net_handle;
+					axi_interface_map[axi_interface_name].ports.rvalid = net_handle;
 				else if (axi_interface_port == "rready") 
-					axi_interface_map[axi_interface_name].rready = net_handle;
+					axi_interface_map[axi_interface_name].ports.rready = net_handle;
 				else if (axi_interface_port == "rlast") 
-					axi_interface_map[axi_interface_name].rlast = net_handle;
+					axi_interface_map[axi_interface_name].ports.rlast = net_handle;
 				else if (axi_interface_port == "rresp") 
-					axi_interface_map[axi_interface_name].rresp = net_handle;
+					axi_interface_map[axi_interface_name].ports.rresp = net_handle;
 
 				else if (axi_interface_port == "awaddr")
-					axi_interface_map[axi_interface_name].awaddr = net_handle;
+					axi_interface_map[axi_interface_name].ports.awaddr = net_handle;
 				else if (axi_interface_port == "awvalid") 
-					axi_interface_map[axi_interface_name].awvalid = net_handle;
+					axi_interface_map[axi_interface_name].ports.awvalid = net_handle;
 				else if (axi_interface_port == "awready") 
-					axi_interface_map[axi_interface_name].awready = net_handle;
+					axi_interface_map[axi_interface_name].ports.awready = net_handle;
 				else if (axi_interface_port == "awlen") 
-					axi_interface_map[axi_interface_name].awlen = net_handle;
+					axi_interface_map[axi_interface_name].ports.awlen = net_handle;
 				else if (axi_interface_port == "awsize") 
-					axi_interface_map[axi_interface_name].awsize = net_handle;
+					axi_interface_map[axi_interface_name].ports.awsize = net_handle;
 				else if (axi_interface_port == "awburst") 
-					axi_interface_map[axi_interface_name].awburst = net_handle;
+					axi_interface_map[axi_interface_name].ports.awburst = net_handle;
 
-				else if (axi_interface_port == "wdata") 
-					axi_interface_map[axi_interface_name].wdata = net_handle;
+				else if (axi_interface_port == "wdata") {
+					axi_interface_map[axi_interface_name].ports.wdata = net_handle;
+					axi_interface_map[axi_interface_name].interface_width = vpi_get(vpiSize, net_handle);
+				}
 				else if (axi_interface_port == "wvalid") 
-					axi_interface_map[axi_interface_name].wvalid = net_handle;
+					axi_interface_map[axi_interface_name].ports.wvalid = net_handle;
 				else if (axi_interface_port == "wready") 
-					axi_interface_map[axi_interface_name].wready = net_handle;
+					axi_interface_map[axi_interface_name].ports.wready = net_handle;
 				else if (axi_interface_port == "wlast") 
-					axi_interface_map[axi_interface_name].wlast = net_handle;
+					axi_interface_map[axi_interface_name].ports.wlast = net_handle;
 
 				else if (axi_interface_port == "bresp") 
-					axi_interface_map[axi_interface_name].bresp = net_handle;
+					axi_interface_map[axi_interface_name].ports.bresp = net_handle;
 				else if (axi_interface_port == "bvalid") 
-					axi_interface_map[axi_interface_name].bvalid = net_handle;
+					axi_interface_map[axi_interface_name].ports.bvalid = net_handle;
 				else if (axi_interface_port == "bready") 
-					axi_interface_map[axi_interface_name].bready = net_handle;
+					axi_interface_map[axi_interface_name].ports.bready = net_handle;
 			}
 
 			// get the next port
@@ -482,11 +247,13 @@ PLI_INT32 setup_axi_sniffer(p_cb_data cb_data) {
 			cb_value_s.format = vpiIntVal;
 			cb_clk.user_data = (PLI_BYTE8*)(axi_interface_entry.first.c_str());
 			vpi_register_cb(&cb_clk);
+
+			axi_interface_entry.second.sim_to_hw_pipe = setup_send_channel(AXI_SIM_TO_HW_PIPENAME);
+			axi_interface_entry.second.hw_to_sim_pipe = setup_recv_channel(AXI_HW_TO_SIM_PIPENAME);
 		}
 	}
 
-	AXI_SIM_TO_HW_PIPE = setup_send_channel(AXI_SIM_TO_HW_PIPENAME);
-	AXI_HW_TO_SIM_PIPE = setup_recv_channel(AXI_HW_TO_SIM_PIPENAME);
+	
 	vpi_printf( (char*)"\n======================================\n" );
 
 	return 0;

@@ -21,8 +21,8 @@ CSR_SIM_PATH = /home/sameh/Research/Work/StateMover/CSR_SIM/
 CSR_SIM_OBJECT_FILES = $(CSR_SIM_PATH)/csr_sim.o $(CSR_SIM_PATH)/state_element.o $(CSR_SIM_PATH)/state_access.o
 
 all: $(CSR_SIM_OBJECT_FILES) axi_sniffer.cpp
-	g++-5 $(CFLAGS) vlog_startup.cpp axi_sniffer.cpp axis_sniffer.cpp message.cpp
-	g++-5 $(LFLAGS) -o StateLink.sl vlog_startup.o axi_sniffer.o axis_sniffer.o message.o $(CSR_SIM_OBJECT_FILES)
+	g++-5 $(CFLAGS) vlog_startup.cpp axi_sniffer.cpp axi_interface.cpp axis_sniffer.cpp message.cpp
+	g++-5 $(LFLAGS) -o StateLink.sl vlog_startup.o axi_sniffer.o axi_interface.o axis_sniffer.o message.o $(CSR_SIM_OBJECT_FILES)
 
 clean: 
 	rm -rf StateLink.sl vlog_startup.o axi_sniffer.o axis_sniffer.o message.o

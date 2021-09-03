@@ -47,7 +47,7 @@ mutex axis_mtx;
 int axis_rx_counter = 0;
 int axis_tx_counter = 0;
 
-void process_axis_rx_message(string message) {
+void process_axis_rx_message(string message, void*) {
 
 	// Check if the received message is "R packet_length packet_data"
 	if (message[0] == 'R' && message[1] == ' ') {
@@ -67,11 +67,11 @@ void process_axis_rx_message(string message) {
 
 void axis_rx_thread_fn() {
 	while (1) {
-		recv_message(AXIS_RX_HW_TO_SIM_PIPE, process_axis_rx_message, true);
+		recv_message(AXIS_RX_HW_TO_SIM_PIPE, process_axis_rx_message, NULL, true);
 	}
 }
 
-void process_axis_tx_message(string message) {
+void process_axis_tx_message(string message, void*) {
 
 	// Check if the received message is READ DATA
 	if (message.find("READ DATA") != string::npos) {
@@ -355,7 +355,7 @@ void axis_tx_transaction(string axis_interface_name) {
 		string message = "W " + to_string(packet_length) + " " + tdata_packet;
 		send_message(AXIS_TX_SIM_TO_HW_PIPE, message);
 
-		recv_message(AXIS_TX_HW_TO_SIM_PIPE, process_axis_tx_message, true);
+		recv_message(AXIS_TX_HW_TO_SIM_PIPE, process_axis_tx_message, NULL, true);
 		//vpi_printf( (char*)"\tAXIS TX Transaction on %s: %s\n", axis_interface_name.c_str(), message.c_str());
 		axis_tx_counter++;
 		//vpi_printf( (char*)"\tAXIS TX Transaction %d\n", axis_tx_counter);
