@@ -2,10 +2,10 @@ set THREAD_LIB_PATH /usr/lib/tcltk/x86_64-linux-gnu/thread2.8.5
 lappend auto_path $THREAD_LIB_PATH
 package require Thread 
 
-set AXI_LINK 1
+set AXI_LINK 2
 set AXIS_LINK 1
 
-set AXI_JTAG_AXI_INSTANCE "*/StateLink_AXI_0/jtag_axi_0"
+set AXI_JTAG_AXI_INSTANCE {"*/StateLink_AXI_0/jtag_axi_0" "*/StateLink_AXI_1/jtag_axi_0"}
 set AXIS_JTAG_AXI_INSTANCE "*/StateLink_AXIS_0/jtag_axi_1"
 set AXIS_JTAG_AXI_LITE_INSTANCE "*/StateLink_AXIS_0/jtag_axi_0"
 
@@ -36,14 +36,17 @@ proc StateLink {} {
 	set AXI_READ_COMMAND_COUNTER 0
 	set AXIS_WRITE_COMMAND_COUNTER 0
 
-	if { $AXI_LINK ne 0 } {
-		set axi_jtag_axi [get_hw_axis -of_objects [get_hw_devices $DEVICE_NAME] -filter "CELL_NAME=~$AXI_JTAG_AXI_INSTANCE"]
+	for {set i 0} {$i < $AXI_LINK} {incr i} {
+		set axi_jtag_axi [get_hw_axis -of_objects [get_hw_devices $DEVICE_NAME] -filter "CELL_NAME=~[lindex $AXI_JTAG_AXI_INSTANCE $i]"]
+
+		set axi_sim_to_hw_pipename ${AXI_SIM_TO_HW_PIPENAME}_$i
+		set axi_hw_to_sim_pipename ${AXI_HW_TO_SIM_PIPENAME}_$i
 
 		puts "Opening AXI_SIM_TO_HW_PIPE"
-		open_axi_sim_to_hw_pipe $AXI_SIM_TO_HW_PIPENAME $AXI_HW_TO_SIM_PIPENAME $axi_jtag_axi
+		open_axi_sim_to_hw_pipe $axi_sim_to_hw_pipename $axi_hw_to_sim_pipename $axi_jtag_axi
 
 		puts "Opening AXI_HW_TO_SIM_PIPE"
-		set axi_hw_to_sim_pipe [open $AXI_HW_TO_SIM_PIPENAME w]
+		set axi_hw_to_sim_pipe [open $axi_hw_to_sim_pipename w]
 	}
 
 	if { $AXIS_LINK ne 0 } {

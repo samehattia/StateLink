@@ -232,6 +232,7 @@ PLI_INT32 setup_axi_sniffer(p_cb_data cb_data) {
 		// We can either register a callback using vpi_register_cb()
 		// or a system task using vpi_register_systf() that can be called from Verilog (has to be called after all events are processed (using cbReadWriteSynch??))
 		// The callback can be called due to a specific signal value change or every clock cycle using cbValueChange (Do we need cbReadWriteSynch ??)
+		int axi_interface_counter = 0;
 		for (auto& axi_interface_entry: axi_interface_map) {
 			s_cb_data cb_clk;
 			s_vpi_value cb_value_s;
@@ -248,8 +249,13 @@ PLI_INT32 setup_axi_sniffer(p_cb_data cb_data) {
 			cb_clk.user_data = (PLI_BYTE8*)(axi_interface_entry.first.c_str());
 			vpi_register_cb(&cb_clk);
 
-			axi_interface_entry.second.sim_to_hw_pipe = setup_send_channel(AXI_SIM_TO_HW_PIPENAME);
-			axi_interface_entry.second.hw_to_sim_pipe = setup_recv_channel(AXI_HW_TO_SIM_PIPENAME);
+			std::string sim_to_hw_pipename = std::string(AXI_SIM_TO_HW_PIPENAME) + '_' + std::to_string(axi_interface_counter);
+			std::string hw_to_sim_pipename = std::string(AXI_HW_TO_SIM_PIPENAME) + '_' + std::to_string(axi_interface_counter);
+
+			axi_interface_entry.second.sim_to_hw_pipe = setup_send_channel(sim_to_hw_pipename);
+			axi_interface_entry.second.hw_to_sim_pipe = setup_recv_channel(hw_to_sim_pipename);
+
+			axi_interface_counter++;
 		}
 	}
 
