@@ -14,10 +14,6 @@ set AXIS_JTAG_AXI_LITE_INSTANCE "*/StateLink_AXIS_0/jtag_axi_0"
 set AXIS_VIO_INSTANCE "*/StateLink_AXIS_0/vio_0"
 set AXIS_VIO_SIGNAL "*/StateLink_AXIS_0/axi_fifo_mm_s_0_interrupt"
 
-set AXIS_JTAG_AXI ""
-set AXIS_JTAG_AXI_LITE ""
-set AXIS_VIO ""
-
 set AXIS_RX_SIM_TO_HW_PIPENAME "/tmp/axis_rx_sim_to_hw_pipe"
 set AXIS_RX_HW_TO_SIM_PIPENAME "/tmp/axis_rx_hw_to_sim_pipe"
 
@@ -27,13 +23,13 @@ set AXIS_READ_COMMAND_COUNTER 0
 
 set AXIS_RX_HW_THREAD 0
 
-proc wait_axis_rx_interrupt {} {
-	global SIM_TO_HW_PIPE_CLOSED AXIS_RX_HW_THREAD AXIS_JTAG_AXI_LITE AXIS_VIO
+proc wait_axis_rx_interrupt {jtag_axi_lite vio} {
+	global SIM_TO_HW_PIPE_CLOSED AXIS_RX_HW_THREAD
 
 	# Wait for the interrupt to go high
 	while 1 {
-		refresh_hw_vio [get_hw_vios $AXIS_VIO]
-		set interrupt [get_property INPUT_VALUE [get_hw_probes -of_objects [get_hw_vios $AXIS_VIO]]]
+		refresh_hw_vio [get_hw_vios $vio]
+		set interrupt [get_property INPUT_VALUE [get_hw_probes -of_objects [get_hw_vios $vio]]]
 
 		if { $interrupt } {
 			break
@@ -47,24 +43,24 @@ proc wait_axis_rx_interrupt {} {
 	}
 
 	# Interrupt Status Register (ISR) @0x00 --> Output 04000000
-	create_hw_axi_txn rd_txn [get_hw_axis $AXIS_JTAG_AXI_LITE] -address 44A0_0000 -len 1 -type read -force
-	run_hw_axi -verbose rd_txn
+	create_hw_axi_txn rd_txn [get_hw_axis $jtag_axi_lite] -address 44A0_0000 -len 1 -type read -force
+	run_hw_axi rd_txn
 
 	# Interrupt Status Register (ISR) @0x00 <-- Input FFFFFFFF: Reset interrupt bits
-	create_hw_axi_txn wr_txn [get_hw_axis $AXIS_JTAG_AXI_LITE] -address 44A0_0000 -len 1 -type write -force -data FFFF_FFFF
-	run_hw_axi wr_txn
+	create_hw_axi_txn wr_txn [get_hw_axis $jtag_axi_lite] -address 44A0_0000 -len 1 -type write -force -data FFFF_FFFF
+	run_hw_axi -quiet wr_txn
 
 }
 
-proc read_axis_rx_hw_packet {axis_internal_pipe axis_rx_hw_to_sim_pipe} {
-	global AXIS_INTERNAL_PIPENAME AXIS_RX_HW_TO_SIM_PIPENAME AXIS_READ_COMMAND_COUNTER AXIS_JTAG_AXI AXIS_JTAG_AXI_LITE
+proc read_axis_rx_hw_packet {internal_pipe hw_to_sim_pipe internal_pipename jtag_axi jtag_axi_lite} {
+	global AXIS_READ_COMMAND_COUNTER
 	
 	# Consume all the recieve FIFO till it is empty
 	while { 1 } {
 		# Receive FIFO occupancy (RDFO) @0x1C --> OUTPUT 00000202 (FULL)
-		create_hw_axi_txn rd_txn [get_hw_axis $AXIS_JTAG_AXI_LITE] -address 44A0_001C -len 1 -type read -force
-		run_hw_axi -verbose rd_txn >> $AXIS_INTERNAL_PIPENAME
-		set data [split [read $axis_internal_pipe]]
+		create_hw_axi_txn rd_txn [get_hw_axis $jtag_axi_lite] -address 44A0_001C -len 1 -type read -force
+		run_hw_axi -verbose rd_txn >> $internal_pipename
+		set data [split [read $internal_pipe]]
 		set occupany [lindex $data 6]
 
 		if { $occupany eq "00000000"} {
@@ -72,10 +68,10 @@ proc read_axis_rx_hw_packet {axis_internal_pipe axis_rx_hw_to_sim_pipe} {
 		}
 
 		# Receive length (RLR) @0x24 --> OUTPUT 0000003C
-		create_hw_axi_txn rd_txn [get_hw_axis $AXIS_JTAG_AXI_LITE] -address 44A0_0024 -len 1 -type read -force
-		run_hw_axi -verbose rd_txn >> $AXIS_INTERNAL_PIPENAME
+		create_hw_axi_txn rd_txn [get_hw_axis $jtag_axi_lite] -address 44A0_0024 -len 1 -type read -force
+		run_hw_axi -verbose rd_txn >> $internal_pipename
 
-		set data [split [read $axis_internal_pipe]]
+		set data [split [read $internal_pipe]]
 		set packet_len_hex [lindex $data 6]
 		set packet_len [expr 0x$packet_len_hex]
 		set burst_len [expr {$packet_len / 8.0}]
@@ -83,14 +79,14 @@ proc read_axis_rx_hw_packet {axis_internal_pipe axis_rx_hw_to_sim_pipe} {
 		set burst_len [expr {int($burst_len)}]
 
 		# Receive Data FIFO Data (TDFD) @0x1000 hw_axi_2 --> OUTPUT 0000000000000000000000000000000041612a000000deadbeef0000000000000000000000000a0000000000000801000180220825da924537d0020100350a00
-		create_hw_axi_txn rd_txn_2 [get_hw_axis $AXIS_JTAG_AXI] -address 44A0_1000 -len $burst_len -type read -force
-		run_hw_axi -verbose rd_txn_2 >> $AXIS_INTERNAL_PIPENAME
+		create_hw_axi_txn rd_txn_2 [get_hw_axis $jtag_axi] -address 44A0_1000 -len $burst_len -type read -force
+		run_hw_axi -verbose rd_txn_2 >> $internal_pipename
 
-		set data [split [read $axis_internal_pipe]]
+		set data [split [read $internal_pipe]]
 		set packet [lindex $data 6]
 
-		puts $axis_rx_hw_to_sim_pipe "R $packet_len $packet\0"
-		flush $axis_rx_hw_to_sim_pipe
+		puts $hw_to_sim_pipe "R $packet_len $packet\0"
+		flush $hw_to_sim_pipe
 
 		incr AXIS_READ_COMMAND_COUNTER
 	}
@@ -125,7 +121,7 @@ proc open_axis_rx_sim_to_hw_pipe {} {
 }
 
 proc StateLink_AXIS_RX {} {
-	global DEVICE_NAME FULL_PROBES AXIS_RX_SIM_TO_HW_PIPENAME AXIS_RX_HW_TO_SIM_PIPENAME AXIS_INTERNAL_PIPENAME AXIS_READ_COMMAND_COUNTER AXIS_RX_HW_THREAD AXIS_JTAG_AXI AXIS_JTAG_AXI_LITE AXIS_VIO AXIS_JTAG_AXI_INSTANCE AXIS_JTAG_AXI_LITE_INSTANCE AXIS_VIO_INSTANCE
+	global DEVICE_NAME FULL_PROBES AXIS_RX_SIM_TO_HW_PIPENAME AXIS_RX_HW_TO_SIM_PIPENAME AXIS_INTERNAL_PIPENAME AXIS_READ_COMMAND_COUNTER AXIS_RX_HW_THREAD AXIS_JTAG_AXI_INSTANCE AXIS_JTAG_AXI_LITE_INSTANCE AXIS_VIO_INSTANCE
 
 	open_hw
 	connect_hw_server
@@ -146,31 +142,31 @@ proc StateLink_AXIS_RX {} {
 	}
 	set axis_internal_pipe [open $AXIS_INTERNAL_PIPENAME {RDONLY NONBLOCK}]
 
-	set AXIS_JTAG_AXI [get_hw_axis -of_objects [get_hw_devices $DEVICE_NAME] -filter "CELL_NAME=~$AXIS_JTAG_AXI_INSTANCE"]
-	set AXIS_JTAG_AXI_LITE [get_hw_axis -of_objects [get_hw_devices $DEVICE_NAME] -filter "CELL_NAME=~$AXIS_JTAG_AXI_LITE_INSTANCE"]
-	set AXIS_VIO [get_hw_vios -of_objects [get_hw_devices $DEVICE_NAME] -filter "CELL_NAME=~$AXIS_VIO_INSTANCE"]
+	set axis_jtag_axi [get_hw_axis -of_objects [get_hw_devices $DEVICE_NAME] -filter "CELL_NAME=~$AXIS_JTAG_AXI_INSTANCE"]
+	set axis_jtag_axi_lite [get_hw_axis -of_objects [get_hw_devices $DEVICE_NAME] -filter "CELL_NAME=~$AXIS_JTAG_AXI_LITE_INSTANCE"]
+	set axis_vio [get_hw_vios -of_objects [get_hw_devices $DEVICE_NAME] -filter "CELL_NAME=~$AXIS_VIO_INSTANCE"]
 
 	# Direct the packets to the AXIS FIFO # Currently, packets are directed by the decouple signal
 	# set_property OUTPUT_VALUE 1 [get_hw_probes "memcached_i/StateLink_AXIS_0/S00_AXIS_tdest_1" -of_objects [get_hw_vios -of_objects [get_hw_devices "xcku040_0"] -filter "CELL_NAME=~memcached_i/StateLink_AXIS_0/vio_1"]]
 	# commit_hw_vio [get_hw_probes "memcached_i/StateLink_AXIS_0/S00_AXIS_tdest_1" -of_objects [get_hw_vios -of_objects [get_hw_devices "xcku040_0"] -filter "CELL_NAME=~memcached_i/StateLink_AXIS_0/vio_1"]]
 
 	# Receive Data FIFO Reset Register (RDFR) @0x18 <-- Input 0000_00A5: Reset Receive FIFO
-	create_hw_axi_txn wr_txn [get_hw_axis $AXIS_JTAG_AXI_LITE] -address 44A0_0018 -len 1 -type write -force -data 0000_00A5
-	run_hw_axi wr_txn
+	create_hw_axi_txn wr_txn [get_hw_axis $axis_jtag_axi_lite] -address 44A0_0018 -len 1 -type write -force -data 0000_00A5
+	run_hw_axi -quiet wr_txn
 
 	# Interrupt Status Register (ISR) @0x00 <-- Input FFFFFFFF: Reset interrupt bits
-	create_hw_axi_txn wr_txn [get_hw_axis $AXIS_JTAG_AXI_LITE] -address 44A0_0000 -len 1 -type write -force -data FFFF_FFFF
-	run_hw_axi wr_txn
+	create_hw_axi_txn wr_txn [get_hw_axis $axis_jtag_axi_lite] -address 44A0_0000 -len 1 -type write -force -data FFFF_FFFF
+	run_hw_axi -quiet wr_txn
 
 	# Interrupt Enable Register (IER) @0x04 <-- Input 04000000: Enable receive complete interrupt
-	create_hw_axi_txn wr_txn [get_hw_axis $AXIS_JTAG_AXI_LITE] -address 44A0_0004 -len 1 -type write -force -data 0400_0000
-	run_hw_axi wr_txn
+	create_hw_axi_txn wr_txn [get_hw_axis $axis_jtag_axi_lite] -address 44A0_0004 -len 1 -type write -force -data 0400_0000
+	run_hw_axi -quiet wr_txn
 
 	# Start RX Loop
 	while { 1 } {
-		read_axis_rx_hw_packet $axis_internal_pipe $axis_rx_hw_to_sim_pipe
+		read_axis_rx_hw_packet $axis_internal_pipe $axis_rx_hw_to_sim_pipe $AXIS_INTERNAL_PIPENAME $axis_jtag_axi $axis_jtag_axi_lite
 
-		wait_axis_rx_interrupt
+		wait_axis_rx_interrupt $axis_jtag_axi_lite $axis_vio
 
 		if { [thread::exists $AXIS_RX_HW_THREAD] eq 0 } {
 			break
