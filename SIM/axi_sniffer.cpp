@@ -9,30 +9,13 @@
 #include "vpi_user.h"
 #include "axi_sniffer.h"
 #include "axi_interface.h"
+#include "utils.h"
 #include "message.h"
 
 std::unordered_map<std::string,axi_interface> axi_interface_map;
 
 std::chrono::duration<double, std::milli> axi_sniffer_duration;
 int axi_clock_counter = 0;
-
-bool check_active_channel(vpiHandle valid_signal, vpiHandle ready_signal) {
-
-	std::string valid_value, ready_value;
-	s_vpi_value current_value;
-	current_value.format = vpiHexStrVal;
-
-	vpi_get_value(valid_signal, &current_value);
-	valid_value = current_value.value.str;
-
-	vpi_get_value(ready_signal, &current_value);
-	ready_value = current_value.value.str;
-
-	if (valid_value == "1" && ready_value == "1")
-		return true;
-
-	return false;
-}
 
 PLI_INT32 axi_sniffer(p_cb_data cb_data) {
 

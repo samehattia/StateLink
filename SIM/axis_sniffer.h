@@ -5,17 +5,12 @@
 
 #define PARAM_FILE_NAME "param.txt"
 
-struct axis_interface {	
-	// Master (sender) or Slave (receiver) AXIS interface
-	bool master;
+#define AXIS_TX_SIM_TO_HW_PIPENAME "/tmp/axis_tx_sim_to_hw_pipe"
+#define AXIS_TX_HW_TO_SIM_PIPENAME "/tmp/axis_tx_hw_to_sim_pipe"
+#define AXIS_RX_SIM_TO_HW_PIPENAME "/tmp/axis_rx_sim_to_hw_pipe"
+#define AXIS_RX_HW_TO_SIM_PIPENAME "/tmp/axis_rx_hw_to_sim_pipe"
 
-	vpiHandle tdata;
-
-	vpiHandle tkeep;
-	vpiHandle tlast;
-
-	vpiHandle tready;
-	vpiHandle tvalid;
-};
+#define AXIS_RX_FIRST_PACKET_DELAY 45000 // minimum number of cycles before feeding the first packet
+#define AXIS_RX_PACKET_DELAY 150 // minimum number of cycles between each packet
 
 #endif
