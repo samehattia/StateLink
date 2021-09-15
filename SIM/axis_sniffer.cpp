@@ -183,6 +183,8 @@ PLI_INT32 setup_axis_sniffer(p_cb_data cb_data) {
 		// We can either register a callback using vpi_register_cb()
 		// or a system task using vpi_register_systf() that can be called from Verilog (has to be called after all events are processed (using cbReadWriteSynch??))
 		// The callback can be called due to a specific signal value change or every clock cycle using cbValueChange (Do we need cbReadWriteSynch ??)
+		int tx_axis_interface_counter = 0;
+		int rx_axis_interface_counter = 0;
 		for (auto& axis_interface_entry: axis_interface_map) {
 			s_cb_data cb_clk;
 			s_vpi_value cb_value_s;
@@ -200,13 +202,25 @@ PLI_INT32 setup_axis_sniffer(p_cb_data cb_data) {
 			vpi_register_cb(&cb_clk);
 
 			if (!axis_interface_entry.second.master) { // RX AXIS
-				axis_interface_entry.second.sim_to_hw_pipe = setup_send_channel(AXIS_RX_SIM_TO_HW_PIPENAME);
-				axis_interface_entry.second.hw_to_sim_pipe = setup_recv_channel(AXIS_RX_HW_TO_SIM_PIPENAME);
+				std::string sim_to_hw_pipename = std::string(AXIS_RX_SIM_TO_HW_PIPENAME) + '_' + std::to_string(rx_axis_interface_counter);
+				std::string hw_to_sim_pipename = std::string(AXIS_RX_HW_TO_SIM_PIPENAME) + '_' + std::to_string(rx_axis_interface_counter);
+				vpi_printf( (char*)"AXIS RX interface %s is connected to %s and %s\n", axis_interface_entry.first.c_str(), sim_to_hw_pipename.c_str(), hw_to_sim_pipename.c_str());
+
+				axis_interface_entry.second.sim_to_hw_pipe = setup_send_channel(sim_to_hw_pipename);
+				axis_interface_entry.second.hw_to_sim_pipe = setup_recv_channel(hw_to_sim_pipename);
 				axis_interface_entry.second.start_rx_thread();
+
+				rx_axis_interface_counter++;
 			}
 			else { // TX AXIS
-				axis_interface_entry.second.sim_to_hw_pipe = setup_send_channel(AXIS_TX_SIM_TO_HW_PIPENAME);
-				axis_interface_entry.second.hw_to_sim_pipe = setup_recv_channel(AXIS_TX_HW_TO_SIM_PIPENAME);
+				std::string sim_to_hw_pipename = std::string(AXIS_TX_SIM_TO_HW_PIPENAME) + '_' + std::to_string(tx_axis_interface_counter);
+				std::string hw_to_sim_pipename = std::string(AXIS_TX_HW_TO_SIM_PIPENAME) + '_' + std::to_string(tx_axis_interface_counter);
+				vpi_printf( (char*)"AXIS TX interface %s is connected to %s and %s\n", axis_interface_entry.first.c_str(), sim_to_hw_pipename.c_str(), hw_to_sim_pipename.c_str());
+
+				axis_interface_entry.second.sim_to_hw_pipe = setup_send_channel(sim_to_hw_pipename);
+				axis_interface_entry.second.hw_to_sim_pipe = setup_recv_channel(hw_to_sim_pipename);
+
+				tx_axis_interface_counter++;
 			}
 		}
 	}

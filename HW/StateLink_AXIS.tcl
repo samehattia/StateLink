@@ -1,12 +1,7 @@
 
-proc start_axis_rx_thread {} {
-	global AXIS_RX_THREAD
+proc start_axis_rx_process {sim_to_hw_pipename hw_to_sim_pipename jtag_axi jtag_axi_lite vio} {
 
-	set AXIS_RX_THREAD [thread::create  -joinable {
-		puts " AXIS_RX_THREAD started."
-		exec vivado -mode tcl -nolog -nojournal -source /home/sameh/Dropbox/UofT/Research/Work/StateMover/../StateLink/HW/StateLink_AXIS_RX.tcl
-		puts " AXIS_RX_THREAD ended."
-	}]
+	exec vivado -mode tcl -nolog -nojournal -source /home/sameh/Dropbox/UofT/Research/Work/StateMover/../StateLink/HW/StateLink_AXIS_RX.tcl << "$sim_to_hw_pipename $hw_to_sim_pipename $jtag_axi $jtag_axi_lite $vio" &
 }
 
 proc read_axis_tx_sim_to_hw_pipe {sim_to_hw_pipe hw_to_sim_pipename jtag_axi jtag_axi_lite} {

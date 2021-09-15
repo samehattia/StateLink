@@ -1,7 +1,3 @@
-set THREAD_LIB_PATH /usr/lib/tcltk/x86_64-linux-gnu/thread2.8.5
-lappend auto_path $THREAD_LIB_PATH
-package require Thread 
-
 # Default Parameters
 set DEVICE_NAME "xcku040_0"
 
@@ -21,10 +17,7 @@ set AXIS_INTERNAL_PIPENAME "/tmp/axis_internal_pipe"
 
 set AXIS_READ_COMMAND_COUNTER 0
 
-set AXIS_RX_HW_THREAD 0
-
-proc wait_axis_rx_interrupt {jtag_axi_lite vio} {
-	global SIM_TO_HW_PIPE_CLOSED AXIS_RX_HW_THREAD
+proc wait_axis_rx_interrupt {jtag_axi_lite vio sim_to_hw_pipe} {
 
 	# Wait for the interrupt to go high
 	while 1 {
@@ -35,7 +28,8 @@ proc wait_axis_rx_interrupt {jtag_axi_lite vio} {
 			break
 		}
 
-		if { [thread::exists $AXIS_RX_HW_THREAD] eq 0 } {
+		read $sim_to_hw_pipe
+		if {[eof $sim_to_hw_pipe]} {
 			break
 		}
 
@@ -93,35 +87,25 @@ proc read_axis_rx_hw_packet {internal_pipe hw_to_sim_pipe internal_pipename jtag
 	
 }
 
-proc open_axis_rx_sim_to_hw_pipe {} {
-	global AXIS_RX_HW_THREAD
-
-	set AXIS_RX_HW_THREAD [thread::create  -joinable {
-		proc read_axis_rx_sim_to_hw_pipe pipe {
-			global SIM_TO_HW_PIPE_CLOSED
-
-			set data [split [read $pipe]]
-
-			if {[eof $pipe]} {
-				close $pipe
-				puts "Pipe Closed"
-				set SIM_TO_HW_PIPE_CLOSED 1
-			}
-		}
-
-		set AXIS_RX_SIM_TO_HW_PIPENAME "/tmp/axis_rx_sim_to_hw_pipe"
-		set SIM_TO_HW_PIPE_CLOSED 0 
-
-		set axis_rx_sim_to_hw_pipe [open $AXIS_RX_SIM_TO_HW_PIPENAME r]
-		fconfigure $axis_rx_sim_to_hw_pipe -blocking 0
-		fileevent $axis_rx_sim_to_hw_pipe readable [list read_axis_rx_sim_to_hw_pipe $axis_rx_sim_to_hw_pipe]
-
-		vwait SIM_TO_HW_PIPE_CLOSED
-	}]
-}
-
 proc StateLink_AXIS_RX {} {
-	global DEVICE_NAME FULL_PROBES AXIS_RX_SIM_TO_HW_PIPENAME AXIS_RX_HW_TO_SIM_PIPENAME AXIS_INTERNAL_PIPENAME AXIS_READ_COMMAND_COUNTER AXIS_RX_HW_THREAD AXIS_JTAG_AXI_INSTANCE AXIS_JTAG_AXI_LITE_INSTANCE AXIS_VIO_INSTANCE
+	global DEVICE_NAME FULL_PROBES AXIS_RX_SIM_TO_HW_PIPENAME AXIS_RX_HW_TO_SIM_PIPENAME AXIS_INTERNAL_PIPENAME AXIS_READ_COMMAND_COUNTER AXIS_JTAG_AXI_INSTANCE AXIS_JTAG_AXI_LITE_INSTANCE AXIS_VIO_INSTANCE
+
+	# Read stdin which should contain the following parameters: axis_rx_sim_to_hw_pipename axis_rx_hw_to_sim_pipename axis_jtag_axi axis_jtag_axi_lite axis_vio
+	gets stdin line
+	set params [split $line]
+	set axis_rx_sim_to_hw_pipename [lindex $params 0]
+	set axis_rx_hw_to_sim_pipename [lindex $params 1]
+	set axis_jtag_axi [lindex $params 2]
+	set axis_jtag_axi_lite [lindex $params 3]
+	set axis_vio [lindex $params 4]
+
+	# set axis_rx_sim_to_hw_pipename $AXIS_RX_SIM_TO_HW_PIPENAME
+	# set axis_rx_hw_to_sim_pipename $AXIS_RX_HW_TO_SIM_PIPENAME
+	# set axis_jtag_axi [get_hw_axis -of_objects [get_hw_devices $DEVICE_NAME] -filter "CELL_NAME=~$AXIS_JTAG_AXI_INSTANCE"]
+	# set axis_jtag_axi_lite [get_hw_axis -of_objects [get_hw_devices $DEVICE_NAME] -filter "CELL_NAME=~$AXIS_JTAG_AXI_LITE_INSTANCE"]
+	# set axis_vio [get_hw_vios -of_objects [get_hw_devices $DEVICE_NAME] -filter "CELL_NAME=~$AXIS_VIO_INSTANCE"]
+
+	set axis_internal_pipename ${AXIS_INTERNAL_PIPENAME}_[pid]
 
 	open_hw
 	connect_hw_server
@@ -132,19 +116,16 @@ proc StateLink_AXIS_RX {} {
 	refresh_hw_device [lindex [get_hw_devices $DEVICE_NAME] 0]
 
 	puts "Opening AXIS_RX_SIM_TO_HW_PIPE"
-	open_axis_rx_sim_to_hw_pipe
+	set axis_rx_sim_to_hw_pipe [open $axis_rx_sim_to_hw_pipename r]
+	fconfigure $axis_rx_sim_to_hw_pipe -blocking 0
 
 	puts "Opening AXIS_RX_HW_TO_SIM_PIPE"
-	set axis_rx_hw_to_sim_pipe [open $AXIS_RX_HW_TO_SIM_PIPENAME w]
+	set axis_rx_hw_to_sim_pipe [open $axis_rx_hw_to_sim_pipename w]
 
-	if {![file exists $AXIS_INTERNAL_PIPENAME]} {
-		exec mkfifo $AXIS_INTERNAL_PIPENAME
+	if {![file exists $axis_internal_pipename]} {
+		exec mkfifo $axis_internal_pipename
 	}
-	set axis_internal_pipe [open $AXIS_INTERNAL_PIPENAME {RDONLY NONBLOCK}]
-
-	set axis_jtag_axi [get_hw_axis -of_objects [get_hw_devices $DEVICE_NAME] -filter "CELL_NAME=~$AXIS_JTAG_AXI_INSTANCE"]
-	set axis_jtag_axi_lite [get_hw_axis -of_objects [get_hw_devices $DEVICE_NAME] -filter "CELL_NAME=~$AXIS_JTAG_AXI_LITE_INSTANCE"]
-	set axis_vio [get_hw_vios -of_objects [get_hw_devices $DEVICE_NAME] -filter "CELL_NAME=~$AXIS_VIO_INSTANCE"]
+	set axis_internal_pipe [open $axis_internal_pipename {RDONLY NONBLOCK}]
 
 	# Direct the packets to the AXIS FIFO # Currently, packets are directed by the decouple signal
 	# set_property OUTPUT_VALUE 1 [get_hw_probes "memcached_i/StateLink_AXIS_0/S00_AXIS_tdest_1" -of_objects [get_hw_vios -of_objects [get_hw_devices "xcku040_0"] -filter "CELL_NAME=~memcached_i/StateLink_AXIS_0/vio_1"]]
@@ -164,20 +145,23 @@ proc StateLink_AXIS_RX {} {
 
 	# Start RX Loop
 	while { 1 } {
-		read_axis_rx_hw_packet $axis_internal_pipe $axis_rx_hw_to_sim_pipe $AXIS_INTERNAL_PIPENAME $axis_jtag_axi $axis_jtag_axi_lite
+		read_axis_rx_hw_packet $axis_internal_pipe $axis_rx_hw_to_sim_pipe $axis_internal_pipename $axis_jtag_axi $axis_jtag_axi_lite
 
-		wait_axis_rx_interrupt $axis_jtag_axi_lite $axis_vio
+		wait_axis_rx_interrupt $axis_jtag_axi_lite $axis_vio $axis_rx_sim_to_hw_pipe
 
-		if { [thread::exists $AXIS_RX_HW_THREAD] eq 0 } {
+		read $axis_rx_sim_to_hw_pipe
+		if {[eof $axis_rx_sim_to_hw_pipe]} {
 			break
 		}
 	}
 
 	close $axis_internal_pipe
 	close $axis_rx_hw_to_sim_pipe
+	close $axis_rx_sim_to_hw_pipe
+
+	exec rm $axis_internal_pipename
 
 	puts "$AXIS_READ_COMMAND_COUNTER AXIS Receive Transactions"
-	exec echo "$AXIS_READ_COMMAND_COUNTER AXIS Receive Transactions" > /tmp/statelink.log
 }
 
 StateLink_AXIS_RX
