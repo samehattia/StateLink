@@ -11,4 +11,7 @@
 
 #define JTAG_AXI_WIDTH 64
 
+// Generator mode in which the write and read responses are fully generated from the C++ side
+const bool generator = true;
+
 #endif

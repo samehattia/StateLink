@@ -2,7 +2,7 @@
 #include <cstring>
 #include "utils.h"
 
-void set_signal_value(vpiHandle signal, std::string singal_value, bool binary_string) {
+void set_signal_value(vpiHandle signal, std::string singal_value, bool binary_string, bool delay) {
 
 	s_vpi_value new_value;
 	if (binary_string)
@@ -12,7 +12,17 @@ void set_signal_value(vpiHandle signal, std::string singal_value, bool binary_st
 
 	new_value.value.str = new char [singal_value.length() + 1];
 	strcpy(new_value.value.str, singal_value.c_str());
-	vpi_put_value(signal, &new_value, NULL, vpiNoDelay);
+
+	if (delay) {
+		// If this function is called at an active clock edge, a delay has to be used when modifying the signal value
+		s_vpi_time time_s;
+		time_s.type = vpiScaledRealTime;
+		time_s.real = 100; // time unit (ps)
+		vpi_put_value(signal, &new_value, &time_s, vpiInertialDelay);
+	}
+	else {
+		vpi_put_value(signal, &new_value, NULL, vpiNoDelay);
+	}
 }
 
 std::string get_signal_value(vpiHandle signal) {

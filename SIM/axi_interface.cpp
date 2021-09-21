@@ -8,6 +8,7 @@
 #include "axi_interface.h"
 #include "axi_sniffer.h"
 #include "message.h"
+#include "utils.h"
 
 void process_axi_message(std::string message, void* user_data) {
 
@@ -29,11 +30,26 @@ void process_axi_message(std::string message, void* user_data) {
 	}
 }
 
-void axi_interface::response_write_transaction() {
+void axi_interface::response_write_transaction(bool generator) {
 
 	unsigned int wait_counter = 0;
 	unsigned int max_wait = std::numeric_limits<unsigned int>::max();
 
+	// In generator mode, this function is called every clock cycle. However, a write response is issued only after a write burst is completed
+	if (generator) {
+		// Write response received by the DUT, clear the response
+		if (get_binary_signal_value(ports.bvalid) && get_binary_signal_value(ports.bready)) {
+			set_signal_value(ports.bvalid, "0", false, true);
+			set_signal_value(ports.bresp, "0", false, true);
+			return;
+		}
+		// Check if a write burst is completed. If not, return
+		if (!(get_binary_signal_value(ports.wvalid) && get_binary_signal_value(ports.wready) && get_binary_signal_value(ports.wlast))) {
+			return;
+		}
+	}
+
+	// Receive the write response from the hardware
 	while(response_write_transactions.empty()) {
 
 		if (waiting_msg_write_flag) {
@@ -54,6 +70,12 @@ void axi_interface::response_write_transaction() {
 	mtx.lock();
 	response_write_transactions.pop();
 	mtx.unlock();
+
+	// If the generator mode is enabled, place the response on the write response channel
+	if (generator) {
+		set_signal_value(ports.bvalid, "1", false, true);
+		set_signal_value(ports.bresp, "0", false, true);
+	}
 }
 
 void axi_interface::data_read_transaction() {
