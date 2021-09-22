@@ -28,7 +28,7 @@ PLI_INT32 axi_sniffer(p_cb_data cb_data) {
 	if (!cb_data->value->value.integer) {
 		// In order to have the read response ready by the next positive clock edge
 		// we are going to process the read response here
-		if (check_active_channel(axi_intf.ports.rvalid, axi_intf.ports.rready)) {
+		if (!generator && check_active_channel(axi_intf.ports.rvalid, axi_intf.ports.rready)) {
 			axi_intf.data_read_transaction();
 		} 
 		if (!generator && check_active_channel(axi_intf.ports.bvalid, axi_intf.ports.bready)) {
@@ -48,6 +48,7 @@ PLI_INT32 axi_sniffer(p_cb_data cb_data) {
 			axi_intf.address_read_transaction();
 		}
 		if (generator) {
+			axi_intf.data_read_transaction(generator);
 			axi_intf.response_write_transaction(generator);
 		}
 	}

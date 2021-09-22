@@ -78,7 +78,31 @@ void axi_interface::response_write_transaction(bool generator) {
 	}
 }
 
-void axi_interface::data_read_transaction() {
+void axi_interface::data_read_transaction(bool generator) {
+
+	// In generator mode, this function is called every clock cycle. However, a read response is issued only after a read request and can take few cycle for burst
+	if (generator) {
+		bool new_data_beat = false;
+
+		// If the previous data beat is received by the DUT, update the global counter
+		if (get_binary_signal_value(ports.rvalid) && get_binary_signal_value(ports.rready)) {
+			data_read_counter++;
+			new_data_beat = true;
+
+			// If a burst read is completed, clear the response
+			if (get_binary_signal_value(ports.rlast)) {
+				data_read_counter = 0;
+				address_read_transactions.pop();
+				set_signal_value(ports.rvalid, "0", false, true);
+				set_signal_value(ports.rlast, "0", false, true);
+				return;
+			}
+		}
+		// Check if a read request is issued or a burst read is still in progress. If not, return
+		if (!((get_binary_signal_value(ports.arvalid) && get_binary_signal_value(ports.arready)) || new_data_beat)) {
+			return;
+		}
+	}
 
 	s_vpi_value current_value;
 	current_value.format = vpiHexStrVal;
@@ -128,23 +152,34 @@ void axi_interface::data_read_transaction() {
 	int data_beat_loc = (arlen_value + 1 - data_read_counter - 1) * data_beat_size;
 	
 	std::string rdata_hardware_value = data_read_packet.substr(data_beat_loc, data_beat_size);
-	
-	s_vpi_value hardware_value;
-	hardware_value.format = vpiHexStrVal;
+	std::string rlast_hardware_value = "";
 
-	hardware_value.value.str = new char [rdata_hardware_value.length() + 1];
-	strcpy(hardware_value.value.str, rdata_hardware_value.c_str());
-	vpi_put_value(ports.rdata, &hardware_value, NULL, vpiNoDelay);
+	if (data_read_counter >= arlen_value)
+		rlast_hardware_value = "1";
+	else
+		rlast_hardware_value = "0";
 
-	data_read_counter++;
+	if (!generator) {
+		// Overwrite the rdata value
+		set_signal_value(ports.rdata, rdata_hardware_value);
 
-	// If this is the last data beat, then the next beat is the start of a new packet
-	if (rlast_value) { 
-		data_read_counter = 0;
-		address_read_transactions.pop();
+		data_read_counter++;
+
+		// If this is the last data beat, then the next beat is the start of a new packet
+		if (rlast_value) {
+			data_read_counter = 0;
+			address_read_transactions.pop();
+		}
+	}
+	// If the generator mode is enabled, place the response on the read response channel
+	else {
+		set_signal_value(ports.rdata, rdata_hardware_value, false, true);
+		set_signal_value(ports.rvalid, "1", false, true);
+		set_signal_value(ports.rresp, "0", false, true);
+		set_signal_value(ports.rlast, rlast_hardware_value, false, true);
 	}
 
-	//vpi_printf( (char*)"\tAXI R Transaction on %s: DATA=%s HARDWARE_DATA=%s LAST=%d\n", interface_name.c_str(), rdata_value.c_str(), rdata_hardware_value.c_str(), rlast_value);
+	//vpi_printf( (char*)"\tAXI R Transaction on %s: DATA=%s HARDWARE_DATA=%s LAST=%d HARDWARE_LAST=%s\n", interface_name.c_str(), rdata_value.c_str(), rdata_hardware_value.c_str(), rlast_value, rlast_hardware_value.c_str());
 }
 
 void axi_interface::address_read_transaction() {

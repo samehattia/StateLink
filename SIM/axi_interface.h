@@ -72,7 +72,7 @@ public:
 	std::mutex mtx;
 
 	void response_write_transaction(bool generator = false);
-	void data_read_transaction();
+	void data_read_transaction(bool generator = false);
 	void address_read_transaction();
 	void data_write_transaction();
 	void address_write_transaction();
