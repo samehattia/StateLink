@@ -164,6 +164,8 @@ PLI_INT32 setup_axi_sniffer(p_cb_data cb_data) {
 					axi_interface_map[axi_interface_name].ports.arsize = net_handle;
 				else if (axi_interface_port == "arburst") 
 					axi_interface_map[axi_interface_name].ports.arburst = net_handle;
+				else if (axi_interface_port == "arid") 
+					axi_interface_map[axi_interface_name].ports.arid = net_handle;
 
 				else if (axi_interface_port == "rdata") {
 					axi_interface_map[axi_interface_name].ports.rdata = net_handle;
@@ -177,6 +179,8 @@ PLI_INT32 setup_axi_sniffer(p_cb_data cb_data) {
 					axi_interface_map[axi_interface_name].ports.rlast = net_handle;
 				else if (axi_interface_port == "rresp") 
 					axi_interface_map[axi_interface_name].ports.rresp = net_handle;
+				else if (axi_interface_port == "rid") 
+					axi_interface_map[axi_interface_name].ports.rid = net_handle;
 
 				else if (axi_interface_port == "awaddr")
 					axi_interface_map[axi_interface_name].ports.awaddr = net_handle;
@@ -190,6 +194,8 @@ PLI_INT32 setup_axi_sniffer(p_cb_data cb_data) {
 					axi_interface_map[axi_interface_name].ports.awsize = net_handle;
 				else if (axi_interface_port == "awburst") 
 					axi_interface_map[axi_interface_name].ports.awburst = net_handle;
+				else if (axi_interface_port == "awid") 
+					axi_interface_map[axi_interface_name].ports.awid = net_handle;
 
 				else if (axi_interface_port == "wdata") {
 					axi_interface_map[axi_interface_name].ports.wdata = net_handle;
@@ -208,6 +214,8 @@ PLI_INT32 setup_axi_sniffer(p_cb_data cb_data) {
 					axi_interface_map[axi_interface_name].ports.bvalid = net_handle;
 				else if (axi_interface_port == "bready") 
 					axi_interface_map[axi_interface_name].ports.bready = net_handle;
+				else if (axi_interface_port == "bid") 
+					axi_interface_map[axi_interface_name].ports.bid = net_handle;
 			}
 
 			// get the next port

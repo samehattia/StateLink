@@ -14,6 +14,7 @@ struct axi_interface_ports {
 	vpiHandle arlen;
 	vpiHandle arsize;
 	vpiHandle arburst;
+	vpiHandle arid;
 
 	// R Channel
 	vpiHandle rvalid;
@@ -22,6 +23,7 @@ struct axi_interface_ports {
 	vpiHandle rdata;
 	vpiHandle rlast;
 	vpiHandle rresp;
+	vpiHandle rid;
 
 	// AW Channel
 	vpiHandle awvalid;
@@ -31,6 +33,7 @@ struct axi_interface_ports {
 	vpiHandle awlen;
 	vpiHandle awsize;
 	vpiHandle awburst;
+	vpiHandle awid;
 
 	// W Channel
 	vpiHandle wvalid;
@@ -44,6 +47,14 @@ struct axi_interface_ports {
 	vpiHandle bready;
 
 	vpiHandle bresp;
+	vpiHandle bid;
+};
+
+struct address_transaction {
+	std::string addr;
+	int len;
+	int size;
+	int id;
 };
 
 class axi_interface
@@ -52,13 +63,13 @@ public:
 	std::string interface_name;
 	int interface_width = 64;
 
-	axi_interface_ports ports = {0,0,0,0,0,0, 0,0,0,0,0, 0,0,0,0,0,0, 0,0,0,0, 0,0,0};
+	axi_interface_ports ports = {0,0,0,0,0,0,0, 0,0,0,0,0,0, 0,0,0,0,0,0,0, 0,0,0,0, 0,0,0,0};
 
-	std::queue<std::pair<std::string,int>> address_write_transactions; // awaddr and awlen
-	std::queue<std::pair<int,int>> address_read_transactions; // arlen and arsize
+	std::queue<address_transaction> address_write_transactions;
+	std::queue<address_transaction> address_read_transactions;
 	std::queue<std::string> data_write_transactions; // wdata
 	std::queue<std::string> data_read_transactions; // rdata_packet
-	std::queue<bool> response_write_transactions;
+	std::queue<int> response_write_transactions;
 
 	int sim_to_hw_pipe = -1;
 	int hw_to_sim_pipe = -1;

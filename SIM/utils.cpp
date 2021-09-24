@@ -2,6 +2,25 @@
 #include <cstring>
 #include "utils.h"
 
+void set_signal_value(vpiHandle signal, int singal_value, bool delay) {
+
+	s_vpi_value new_value;
+	new_value.format = vpiIntVal;
+
+	new_value.value.integer = singal_value;
+
+	if (delay) {
+		// If this function is called at an active clock edge, a delay has to be used when modifying the signal value
+		s_vpi_time time_s;
+		time_s.type = vpiScaledRealTime;
+		time_s.real = 100; // time unit (ps)
+		vpi_put_value(signal, &new_value, &time_s, vpiInertialDelay);
+	}
+	else {
+		vpi_put_value(signal, &new_value, NULL, vpiNoDelay);
+	}
+}
+
 void set_signal_value(vpiHandle signal, std::string singal_value, bool binary_string, bool delay) {
 
 	s_vpi_value new_value;

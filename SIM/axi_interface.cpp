@@ -22,7 +22,8 @@ void process_axi_message(std::string message, void* user_data) {
 	}
 	else if (message.find("WRITE DATA") != std::string::npos) {
 		axi_intf->mtx.lock();
-		axi_intf->response_write_transactions.push(true);
+		axi_intf->response_write_transactions.push(axi_intf->address_write_transactions.front().id);
+		axi_intf->address_write_transactions.pop();
 		axi_intf->mtx.unlock();
 	}
 	else {
@@ -68,6 +69,7 @@ void axi_interface::response_write_transaction(bool generator) {
 	}
 
 	mtx.lock();
+	int awid_value = response_write_transactions.front();
 	response_write_transactions.pop();
 	mtx.unlock();
 
@@ -75,6 +77,8 @@ void axi_interface::response_write_transaction(bool generator) {
 	if (generator) {
 		set_signal_value(ports.bvalid, "1", false, true);
 		set_signal_value(ports.bresp, "0", false, true);
+		if (ports.bid)
+			set_signal_value(ports.bid, awid_value, true);
 	}
 }
 
@@ -145,8 +149,9 @@ void axi_interface::data_read_transaction(bool generator) {
 		mtx.unlock();
 	}
 
-	int arlen_value = address_read_transactions.front().first;
-	int arsize_value = address_read_transactions.front().second;
+	int arlen_value = address_read_transactions.front().len;
+	int arsize_value = address_read_transactions.front().size;
+	int arid_value = address_read_transactions.front().id;
 
 	int data_beat_size = (1 << (arsize_value)) * 2; // number of bytes per beat * number of ASCII characters per data byte
 	int data_beat_loc = (arlen_value + 1 - data_read_counter - 1) * data_beat_size;
@@ -177,6 +182,8 @@ void axi_interface::data_read_transaction(bool generator) {
 		set_signal_value(ports.rvalid, "1", false, true);
 		set_signal_value(ports.rresp, "0", false, true);
 		set_signal_value(ports.rlast, rlast_hardware_value, false, true);
+		if (ports.rid)
+			set_signal_value(ports.rid, arid_value, true);
 	}
 
 	//vpi_printf( (char*)"\tAXI R Transaction on %s: DATA=%s HARDWARE_DATA=%s LAST=%d HARDWARE_LAST=%s\n", interface_name.c_str(), rdata_value.c_str(), rdata_hardware_value.c_str(), rlast_value, rlast_hardware_value.c_str());
@@ -201,7 +208,13 @@ void axi_interface::address_read_transaction() {
 	vpi_get_value(ports.arburst, &current_value);
 	int arburst_value = current_value.value.integer;
 
-	address_read_transactions.push(std::make_pair(arlen_value, arsize_value));
+	int arid_value = 0;
+	if (ports.arid) {
+		vpi_get_value(ports.arid, &current_value);
+		arid_value = current_value.value.integer;
+	}
+
+	address_read_transactions.push({araddr_value, arlen_value, arsize_value, arid_value});
 
 	// Message: R Address Len
 	std::string message = "R " + araddr_value + " " + std::to_string(int((arlen_value+1) * interface_width / JTAG_AXI_WIDTH)) + " ";
@@ -234,8 +247,7 @@ void axi_interface::data_write_transaction() {
 		}
 
 		// Message: W Address Len Data
-		std::string message = "W " + address_write_transactions.front().first + " " + std::to_string(int((address_write_transactions.front().second+1) * interface_width / JTAG_AXI_WIDTH)) + " ";
-		address_write_transactions.pop();
+		std::string message = "W " + address_write_transactions.front().addr + " " + std::to_string(int((address_write_transactions.front().len+1) * interface_width / JTAG_AXI_WIDTH)) + " ";
 
 		std::string wdata_packet = "";
 		while (!data_write_transactions.empty()) {
@@ -271,7 +283,13 @@ void axi_interface::address_write_transaction() {
 	vpi_get_value(ports.awburst, &current_value);
 	int awburst_value = current_value.value.integer;
 
-	address_write_transactions.push(std::make_pair(awaddr_value, awlen_value));
+	int awid_value = 0;
+	if (ports.awid) {
+		vpi_get_value(ports.awid, &current_value);
+		awid_value = current_value.value.integer;
+	}
+
+	address_write_transactions.push({awaddr_value, awlen_value, awsize_value, awid_value});
 
 	//vpi_printf( (char*)"\tAXI AW Transaction on %s: ADDR=%s LEN=%d SIZE=%d BURST=%d\n", interface_name.c_str(), awaddr_value.c_str(), awlen_value, awsize_value, awburst_value);
 }
