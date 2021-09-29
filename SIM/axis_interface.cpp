@@ -61,6 +61,7 @@ void axis_interface::rx_transaction() {
 	// once true, the new flit will be put on the interface with a valid signal, and the valid signal should not be lowered until the flit is received by the DUT
 	bool new_flit = false;
 
+	current_time++;
 	rx_packet_delay_counter--;
 	if (rx_packet_delay_counter < 0)
 		rx_packet_delay_counter = 0;
@@ -73,7 +74,10 @@ void axis_interface::rx_transaction() {
 
 		if (get_binary_signal_value(ports.tlast)) {
 			rx_flit_counter = 0;
-			rx_packet_delay_counter = AXIS_RX_PACKET_DELAY;
+			if (!axis_timestamp_mode)
+				rx_packet_delay_counter = AXIS_RX_PACKET_DELAY;
+			else
+				rx_packet_delay_counter = 0;
 		}
 
 		new_flit = true;
@@ -91,6 +95,29 @@ void axis_interface::rx_transaction() {
 			return;
 		}		
 
+		if (axis_timestamp_mode) {
+			// Read the next packet timestamp
+			if (rx_hw_packet_timestamp == 0) {
+				// In the timestamp mode, the first flit of the packet is a timestamp
+				mtx.lock();
+				std::string next_packet = transactions.front();
+				mtx.unlock();
+
+				rx_hw_packet_timestamp = stoll(next_packet.substr(next_packet.length() - (flit_width * 2), flit_width * 2), nullptr, 16);
+
+				// fast forward current time
+				vpi_printf( (char*)"\tIDLE CYCLE %lld, rx_hw_packet_timestamp %x\n", (rx_hw_packet_timestamp - current_time), rx_hw_packet_timestamp);
+				if ((rx_hw_packet_timestamp - current_time) > MAX_IDLE_CYCLES)
+					current_time = rx_hw_packet_timestamp - MAX_IDLE_CYCLES;
+			}
+			// Check if the packet should be fed to the DUT now
+			if (rx_hw_packet_timestamp != current_time) {
+				set_signal_value(ports.tvalid, "0");
+				set_signal_value(ports.tlast, "0");
+				return;
+			}
+		}
+
 		mtx.lock();
 
 		rx_hw_packet = transactions.front();
@@ -104,6 +131,13 @@ void axis_interface::rx_transaction() {
 		if (rx_hw_packet_length > rx_hw_packet.length()/2) {
 			vpi_printf( (char*)"\tError: Received Packet Length exceeds the actual length of the receieved packet from AXIS_RX_HW_TO_SIM_PIPE. Packet=%s axis_rx_hw_packet_length=%d axis_rx_hw_packet.length()=%d\n", rx_hw_packet.c_str(), rx_hw_packet_length, rx_hw_packet.length());
 			vpi_control(vpiFinish, 1);
+		}
+
+		// In the timestamp mode, remove the first flit from the packet before feeding it
+		if (axis_timestamp_mode) {
+			rx_hw_packet = rx_hw_packet.substr(0, rx_hw_packet.length() - (flit_width * 2));
+			rx_hw_packet_length -= flit_width;
+			rx_hw_packet_timestamp = 0;
 		}
 
 		new_flit = true;

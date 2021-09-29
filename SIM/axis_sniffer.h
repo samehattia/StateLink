@@ -13,4 +13,8 @@
 #define AXIS_RX_FIRST_PACKET_DELAY 45000 // minimum number of cycles before feeding the first packet
 #define AXIS_RX_PACKET_DELAY 150 // minimum number of cycles between each packet
 
+// Timestamp mode in which the the received AXIS packets from hardware are timestamped
+const bool axis_timestamp_mode = true;
+#define MAX_IDLE_CYCLES 150
+
 #endif

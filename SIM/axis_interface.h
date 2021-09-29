@@ -39,6 +39,8 @@ public:
 	std::string rx_hw_packet;
 	int rx_hw_packet_length = 0;
 	int rx_flit_counter = 0;
+	long long rx_hw_packet_timestamp = 0;
+	long long current_time = 0;
 
 	std::mutex mtx;
 	std::thread rx_thread;
