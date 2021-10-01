@@ -20,6 +20,7 @@ struct axis_interface_ports {
 class axis_interface
 {
 public:
+	int interface_id = 0;
 	std::string interface_name;
 	int interface_width = 64;
 
@@ -40,7 +41,11 @@ public:
 	int rx_hw_packet_length = 0;
 	int rx_flit_counter = 0;
 	long long rx_hw_packet_timestamp = 0;
-	long long current_time = 0;
+
+	// Static Variables/functions for AXIS timestamp mode
+	static long long current_time;
+	static std::priority_queue<long long, std::vector<long long>, std::greater<long long>> timestamp_min_heap;
+	static void fast_forward_current_time();
 
 	std::mutex mtx;
 	std::thread rx_thread;

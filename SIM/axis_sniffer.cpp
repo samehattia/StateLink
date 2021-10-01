@@ -209,6 +209,7 @@ PLI_INT32 setup_axis_sniffer(p_cb_data cb_data) {
 				axis_interface_entry.second.sim_to_hw_pipe = setup_send_channel(sim_to_hw_pipename);
 				axis_interface_entry.second.hw_to_sim_pipe = setup_recv_channel(hw_to_sim_pipename);
 				axis_interface_entry.second.start_rx_thread();
+				axis_interface_entry.second.interface_id = rx_axis_interface_counter;
 
 				rx_axis_interface_counter++;
 			}
@@ -219,6 +220,7 @@ PLI_INT32 setup_axis_sniffer(p_cb_data cb_data) {
 
 				axis_interface_entry.second.sim_to_hw_pipe = setup_send_channel(sim_to_hw_pipename);
 				axis_interface_entry.second.hw_to_sim_pipe = setup_recv_channel(hw_to_sim_pipename);
+				axis_interface_entry.second.interface_id = tx_axis_interface_counter;
 
 				tx_axis_interface_counter++;
 			}
