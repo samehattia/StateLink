@@ -1,6 +1,7 @@
 
 proc start_axis_rx_process {sim_to_hw_pipename hw_to_sim_pipename jtag_axi jtag_axi_lite vio} {
 
+	puts "Starting AXIS_RX_PROCESS"
 	exec vivado -mode tcl -nolog -nojournal -source /home/sameh/Dropbox/UofT/Research/Work/StateMover/../StateLink/HW/StateLink_AXIS_RX.tcl << "$sim_to_hw_pipename $hw_to_sim_pipename $jtag_axi $jtag_axi_lite $vio" &
 }
 
@@ -42,7 +43,7 @@ proc read_axis_tx_sim_to_hw_pipe {sim_to_hw_pipe hw_to_sim_pipename jtag_axi jta
 	}
 }
 
-proc open_axis_tx_sim_to_hw_pipe {sim_to_hw_pipename hw_to_sim_pipename jtag_axi jtag_axi_lite} {
+proc setup_axis_tx_link {sim_to_hw_pipename hw_to_sim_pipename jtag_axi jtag_axi_lite} {
 
 	while 1 {
 		if {[file exists $sim_to_hw_pipename]} {
@@ -50,7 +51,13 @@ proc open_axis_tx_sim_to_hw_pipe {sim_to_hw_pipename hw_to_sim_pipename jtag_axi
 		}
 		after 1000
 	}
+
+	puts "Opening AXIS_TX_SIM_TO_HW_PIPE"
 	set axis_tx_sim_to_hw_pipe [open $sim_to_hw_pipename r]
 	fconfigure $axis_tx_sim_to_hw_pipe -blocking 0
+
+	puts "Opening AXIS_TX_HW_TO_SIM_PIPE"
+	set axis_tx_hw_to_sim_pipe [open $hw_to_sim_pipename w]
+
 	fileevent $axis_tx_sim_to_hw_pipe readable [list read_axis_tx_sim_to_hw_pipe $axis_tx_sim_to_hw_pipe $hw_to_sim_pipename $jtag_axi $jtag_axi_lite]
 }

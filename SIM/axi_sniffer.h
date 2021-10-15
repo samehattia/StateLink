@@ -12,6 +12,9 @@
 #define JTAG_AXI_WIDTH 64
 
 // Generator mode in which the write and read responses are fully generated from the C++ side
-const bool generator = true;
+const bool axi_generator_mode = true;
+
+// Timestamp mode in which the the AXI write and read responses from hardware are timestamped
+const bool axi_timestamp_mode = true;
 
 #endif

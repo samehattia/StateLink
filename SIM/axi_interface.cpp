@@ -10,71 +10,134 @@
 #include "message.h"
 #include "utils.h"
 
+template <typename T>
+T wait_for_data(std::queue<T>& container, std::string container_name, std::mutex& mtx) {
+
+	unsigned int wait_counter = 0;
+	unsigned int max_wait = std::numeric_limits<unsigned int>::max();
+	static bool waiting_msg_flag = true;
+
+	while(container.empty()) {
+		if (waiting_msg_flag) {
+			vpi_printf( (char*)"\tWaiting for %s (This message is printed once)\n", container_name.c_str());
+			waiting_msg_flag = false;
+		}
+
+		wait_counter++;
+		if (wait_counter == max_wait) {
+			vpi_printf( (char*)"\tError: Extreme wait time for %s. Exiting\n", container_name.c_str());
+			vpi_control(vpiFinish, 1);
+		}
+	}
+
+	mtx.lock();
+
+	T data = container.front();
+	container.pop();
+
+	mtx.unlock();
+
+	return data;
+}
+
 void process_axi_message(std::string message, void* user_data) {
 
 	axi_interface* axi_intf = (axi_interface*) user_data;
 
+	// Check if the received message is "R read_data [timestamp]"
+	if (message[0] == 'R' && message[1] == ' ') {
+		axi_intf->mtx.lock();
+
+		unsigned int pos = message.find_last_of(" ");
+		axi_intf->data_read_transactions.push(message.substr(2, pos - 2));
+
+		if (axi_timestamp_mode)
+			axi_intf->data_read_timestamps.push(stoi(message.substr(message.length()-8), nullptr, 16));
+
+		axi_intf->mtx.unlock();
+	}
+
+	// Check if the received message is "W [timestamp]"
+	else if (message[0] == 'W' && message[1] == ' ') {
+		axi_intf->mtx.lock();
+
+		axi_intf->response_write_transactions.push(axi_intf->address_write_transactions.front().id);
+		axi_intf->address_write_transactions.pop();
+
+		if (axi_timestamp_mode)
+			axi_intf->response_write_timestamps.push(stoi(message.substr(message.length()-8), nullptr, 16));
+
+		axi_intf->mtx.unlock();
+	}
+
 	// Check if the received message is READ DATA
-	if (message.find("READ DATA") != std::string::npos) {
+	else if (message.find("READ DATA") != std::string::npos) {
 		axi_intf->mtx.lock();
 		axi_intf->data_read_transactions.push(message.substr(1 + message.find_last_of(" ")));
 		axi_intf->mtx.unlock();
 	}
+
+	// Check if the received message is WRITE DATA
 	else if (message.find("WRITE DATA") != std::string::npos) {
 		axi_intf->mtx.lock();
 		axi_intf->response_write_transactions.push(axi_intf->address_write_transactions.front().id);
 		axi_intf->address_write_transactions.pop();
 		axi_intf->mtx.unlock();
 	}
+
 	else {
 		vpi_printf( (char*)"\tInvalid message from AXI_HW_TO_SIM_PIPE: %s\n", message.c_str());
 	}
 }
 
-void axi_interface::response_write_transaction(bool generator) {
-
-	unsigned int wait_counter = 0;
-	unsigned int max_wait = std::numeric_limits<unsigned int>::max();
+void axi_interface::response_write_transaction() {
 
 	// In generator mode, this function is called every clock cycle. However, a write response is issued only after a write burst is completed
-	if (generator) {
+	// In timestamp mode, the write response is issued after response_write_latency cycles from a completed write burst
+	if (axi_generator_mode) {
 		// Write response received by the DUT, clear the response
 		if (get_binary_signal_value(ports.bvalid) && get_binary_signal_value(ports.bready)) {
 			set_signal_value(ports.bvalid, "0", false, true);
 			set_signal_value(ports.bresp, "0", false, true);
+
+			// AWREADY goes down after a write request and goes up again after a write response is received
+			set_signal_value(ports.awready, "1", false, true);
+
 			return;
 		}
+
 		// Check if a write burst is completed. If not, return
-		if (!(get_binary_signal_value(ports.wvalid) && get_binary_signal_value(ports.wready) && get_binary_signal_value(ports.wlast))) {
+		if (!axi_timestamp_mode && !(get_binary_signal_value(ports.wvalid) && get_binary_signal_value(ports.wready) && get_binary_signal_value(ports.wlast))) {
 			return;
+		}
+
+		// In timestamp mode:
+		// If a write burst is completed and no valid read latency value, get the write_latency from hardware
+		// According to the write_latency variable: either return or issue the response to the DUT
+		if (axi_timestamp_mode) {
+
+			if (get_binary_signal_value(ports.wvalid) && get_binary_signal_value(ports.wready) && get_binary_signal_value(ports.wlast) && response_write_latency == -1) {
+				response_write_latency = wait_for_data(response_write_timestamps, "response_write_timestamps", mtx);
+			}
+
+			// For valid write_latency, decrement it every cycle
+			if (response_write_latency > 0)
+				response_write_latency--;
+
+			// If write_latency is not equal to zero (delay has not yet passed), return
+			if (response_write_latency != 0)
+				return;
+
+			// Mark the write_latency as invalid
+			response_write_latency = -1;
 		}
 	}
 
 	// Receive the write response from the hardware
-	while(response_write_transactions.empty()) {
-
-		if (waiting_msg_write_flag) {
-			vpi_printf( (char*)"\tWaiting for AXI_HW_TO_SIM_PIPE write response (This message is printed once)\n");
-			waiting_msg_write_flag = false;
-		}
-
-		wait_counter++;
-		if (wait_counter == max_wait) {
-			s_vpi_time current_time;
-			current_time.type = vpiScaledRealTime;
-			vpi_get_time(ports.bvalid, &current_time);
-			vpi_printf( (char*)"\tError: Extreme wait time for AXI_HW_TO_SIM_PIPE write response @ time %2.2f. Exiting\n", current_time.real);
-			vpi_control(vpiFinish, 1);
-		}
-	}
-
-	mtx.lock();
-	int awid_value = response_write_transactions.front();
-	response_write_transactions.pop();
-	mtx.unlock();
+	int awid_value = wait_for_data(response_write_transactions, "response_write_transactions", mtx);
 
 	// If the generator mode is enabled, place the response on the write response channel
-	if (generator) {
+	if (axi_generator_mode) {
 		set_signal_value(ports.bvalid, "1", false, true);
 		set_signal_value(ports.bresp, "0", false, true);
 		if (ports.bid)
@@ -82,10 +145,11 @@ void axi_interface::response_write_transaction(bool generator) {
 	}
 }
 
-void axi_interface::data_read_transaction(bool generator) {
+void axi_interface::data_read_transaction() {
 
 	// In generator mode, this function is called every clock cycle. However, a read response is issued only after a read request and can take few cycle for burst
-	if (generator) {
+	// In timestamp mode, the read response is issued after data_read_latency cycles from a read request
+	if (axi_generator_mode) {
 		bool new_data_beat = false;
 
 		// If the previous data beat is received by the DUT, update the global counter
@@ -99,12 +163,39 @@ void axi_interface::data_read_transaction(bool generator) {
 				address_read_transactions.pop();
 				set_signal_value(ports.rvalid, "0", false, true);
 				set_signal_value(ports.rlast, "0", false, true);
+
+				// ARREADY goes down after a read request and goes up again after a burst read is completed
+				set_signal_value(ports.arready, "1", false, true);
+
 				return;
 			}
 		}
+
 		// Check if a read request is issued or a burst read is still in progress. If not, return
-		if (!((get_binary_signal_value(ports.arvalid) && get_binary_signal_value(ports.arready)) || new_data_beat)) {
+		if (!axi_timestamp_mode && !((get_binary_signal_value(ports.arvalid) && get_binary_signal_value(ports.arready)) || new_data_beat)) {
 			return;
+		}
+
+		// In timestamp mode:
+		// If a burst read is still in progress, continue to issue it
+		// If a read request is issued and no valid read latency value, get the read_latency from hardware
+		// According to the read_latency variable: either return or issue the response to the DUT
+		if (axi_timestamp_mode && !new_data_beat) {
+
+			if (get_binary_signal_value(ports.arvalid) && get_binary_signal_value(ports.arready) && data_read_latency == -1) {
+				data_read_latency = wait_for_data(data_read_timestamps, "data_read_timestamps", mtx);
+			}
+
+			// For valid read_latency, decrement it every cycle
+			if (data_read_latency > 0)
+				data_read_latency--;
+
+			// If read_latency is not equal to zero (delay has not yet passed), return
+			if (data_read_latency != 0)
+				return;
+
+			// Mark the read_latency as invalid
+			data_read_latency = -1;
 		}
 	}
 
@@ -126,27 +217,7 @@ void axi_interface::data_read_transaction(bool generator) {
 	
 	// If this is the first data beat, read the entire data packet from the board
 	if (data_read_counter == 0) {
-		unsigned int wait_counter = 0;
-		unsigned int max_wait = std::numeric_limits<unsigned int>::max();
-
-		while(data_read_transactions.empty()) {
-
-			if (waiting_msg_read_flag) {
-				vpi_printf( (char*)"\tWaiting for AXI_HW_TO_SIM_PIPE read response (This message is printed once)\n");
-				waiting_msg_read_flag = false;
-			}
-
-			wait_counter++;
-			if (wait_counter == max_wait) {
-				vpi_printf( (char*)"\tError: Extreme wait time for AXI_HW_TO_SIM_PIPE read response. Exiting\n");
-				vpi_control(vpiFinish, 1);
-			}
-		}
-
-		mtx.lock();
-		data_read_packet = data_read_transactions.front();
-		data_read_transactions.pop();
-		mtx.unlock();
+		data_read_packet = wait_for_data(data_read_transactions, "data_read_transactions", mtx);
 	}
 
 	int arlen_value = address_read_transactions.front().len;
@@ -164,7 +235,7 @@ void axi_interface::data_read_transaction(bool generator) {
 	else
 		rlast_hardware_value = "0";
 
-	if (!generator) {
+	if (!axi_generator_mode) {
 		// Overwrite the rdata value
 		set_signal_value(ports.rdata, rdata_hardware_value);
 
@@ -222,6 +293,11 @@ void axi_interface::address_read_transaction() {
 
 	recv_message(hw_to_sim_pipe, process_axi_message, (void *) this);
 
+	if (axi_generator_mode) {
+		// ARREADY goes down after a read request and goes up again after a burst read is completed
+		set_signal_value(ports.arready, "0", false, true);
+	}
+
 	//vpi_printf( (char*)"\tAXI AR Transaction on %s: ADDR=%s LEN=%d SIZE=%d BURST=%d\n", interface_name.c_str(), araddr_value.c_str(), arlen_value, arsize_value, arburst_value);
 }
 
@@ -259,6 +335,11 @@ void axi_interface::data_write_transaction() {
 		send_message(sim_to_hw_pipe, message);
 
 		recv_message(hw_to_sim_pipe, process_axi_message, (void *) this, true);
+
+		if (axi_generator_mode) {
+			// WREADY goes up after a write request and goes down again after a burst write is completed
+			set_signal_value(ports.wready, "0", false, true);
+		}
 	}
 
 	//vpi_printf( (char*)"\tAXI W Transaction on %s: DATA=%s LAST=%d\n", interface_name.c_str(), wdata_value.c_str(), wlast_value);
@@ -290,6 +371,14 @@ void axi_interface::address_write_transaction() {
 	}
 
 	address_write_transactions.push({awaddr_value, awlen_value, awsize_value, awid_value});
+
+	if (axi_generator_mode) {
+		// AWREADY goes down after a write request and goes up again after a write response is received
+		set_signal_value(ports.awready, "0", false, true);
+
+		// WREADY goes up after a write request and goes down again after a burst write is completed
+		set_signal_value(ports.wready, "1", false, true);
+	}
 
 	//vpi_printf( (char*)"\tAXI AW Transaction on %s: ADDR=%s LEN=%d SIZE=%d BURST=%d\n", interface_name.c_str(), awaddr_value.c_str(), awlen_value, awsize_value, awburst_value);
 }

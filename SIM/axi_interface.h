@@ -71,19 +71,22 @@ public:
 	std::queue<std::string> data_read_transactions; // rdata_packet
 	std::queue<int> response_write_transactions;
 
+	std::queue<int> data_read_timestamps;
+	std::queue<int> response_write_timestamps;
+
+	int data_read_latency = -1;
+	int response_write_latency = -1;
+
 	int sim_to_hw_pipe = -1;
 	int hw_to_sim_pipe = -1;
 
 	int data_read_counter = 0;
 	std::string data_read_packet;
 
-	bool waiting_msg_read_flag = true;
-	bool waiting_msg_write_flag = true;
-
 	std::mutex mtx;
 
-	void response_write_transaction(bool generator = false);
-	void data_read_transaction(bool generator = false);
+	void response_write_transaction();
+	void data_read_transaction();
 	void address_read_transaction();
 	void data_write_transaction();
 	void address_write_transaction();
