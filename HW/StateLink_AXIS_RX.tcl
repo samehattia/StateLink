@@ -46,8 +46,10 @@ proc wait_axis_rx_interrupt {jtag_axi_lite vio sim_to_hw_pipe} {
 
 }
 
-proc read_axis_rx_hw_packet {internal_pipe hw_to_sim_pipe internal_pipename jtag_axi jtag_axi_lite} {
+proc read_axis_rx_hw_packet {internal_pipe hw_to_sim_pipe sim_to_hw_pipe internal_pipename jtag_axi jtag_axi_lite} {
 	global AXIS_READ_COMMAND_COUNTER
+
+	fconfigure $sim_to_hw_pipe -blocking 1
 	
 	# Consume all the recieve FIFO till it is empty
 	while { 1 } {
@@ -83,7 +85,10 @@ proc read_axis_rx_hw_packet {internal_pipe hw_to_sim_pipe internal_pipename jtag
 		flush $hw_to_sim_pipe
 
 		incr AXIS_READ_COMMAND_COUNTER
+		gets $sim_to_hw_pipe
 	}
+
+	fconfigure $sim_to_hw_pipe -blocking 0
 	
 }
 
@@ -145,7 +150,7 @@ proc StateLink_AXIS_RX {} {
 
 	# Start RX Loop
 	while { 1 } {
-		read_axis_rx_hw_packet $axis_internal_pipe $axis_rx_hw_to_sim_pipe $axis_internal_pipename $axis_jtag_axi $axis_jtag_axi_lite
+		read_axis_rx_hw_packet $axis_internal_pipe $axis_rx_hw_to_sim_pipe $axis_rx_sim_to_hw_pipe $axis_internal_pipename $axis_jtag_axi $axis_jtag_axi_lite
 
 		wait_axis_rx_interrupt $axis_jtag_axi_lite $axis_vio $axis_rx_sim_to_hw_pipe
 

@@ -13,6 +13,9 @@ void process_axis_rx_message(std::string message, void* user_data) {
 
 	axis_interface* axis_intf = (axis_interface*) user_data;
 
+	// Send an acknowledge (needed to backpressure the sender when software queue is full)
+	send_message(axis_intf->sim_to_hw_pipe, "ACK\n");
+
 	// Check if the received message is "R packet_length packet_data"
 	if (message[0] == 'R' && message[1] == ' ') {
 		axis_intf->mtx.lock();
@@ -64,7 +67,8 @@ void axis_interface::fast_forward_current_time() {
 
 void axis_interface::rx_thread_fn() {
 	while (1) {
-		recv_message(hw_to_sim_pipe, process_axis_rx_message, (void *) this, true);
+		if (transactions.size() < MAX_AXIS_QUEUE_SIZE)
+			recv_message(hw_to_sim_pipe, process_axis_rx_message, (void *) this, true);
 	}
 }
 

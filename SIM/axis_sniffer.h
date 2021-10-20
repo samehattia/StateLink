@@ -17,4 +17,6 @@
 const bool axis_timestamp_mode = true;
 #define MAX_IDLE_CYCLES 150
 
+#define MAX_AXIS_QUEUE_SIZE 5000
+
 #endif
