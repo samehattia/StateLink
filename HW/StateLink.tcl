@@ -17,6 +17,9 @@ set AXIS_TX_HW_TO_SIM_PIPENAME "/tmp/axis_tx_hw_to_sim_pipe"
 set AXIS_RX_SIM_TO_HW_PIPENAME "/tmp/axis_rx_sim_to_hw_pipe"
 set AXIS_RX_HW_TO_SIM_PIPENAME "/tmp/axis_rx_hw_to_sim_pipe"
 
+# User-defined Parameters (Overwrite the default parameters)
+source SM_Param.tcl
+
 set SIM_TO_HW_PIPE_CLOSED 0
 
 set AXI_WRITE_COMMAND_COUNTER 0

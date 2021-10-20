@@ -4,15 +4,6 @@ set DEVICE_NAME "xcku040_0"
 # User-defined Parameters (Overwrite the default parameters)
 source SM_Param.tcl
 
-set AXIS_JTAG_AXI_INSTANCE "*/StateLink_AXIS_0/jtag_axi_1"
-set AXIS_JTAG_AXI_LITE_INSTANCE "*/StateLink_AXIS_0/jtag_axi_0"
-
-set AXIS_VIO_INSTANCE "*/StateLink_AXIS_0/vio_0"
-set AXIS_VIO_SIGNAL "*/StateLink_AXIS_0/axi_fifo_mm_s_0_interrupt"
-
-set AXIS_RX_SIM_TO_HW_PIPENAME "/tmp/axis_rx_sim_to_hw_pipe"
-set AXIS_RX_HW_TO_SIM_PIPENAME "/tmp/axis_rx_hw_to_sim_pipe"
-
 set AXIS_INTERNAL_PIPENAME "/tmp/axis_internal_pipe"
 
 set AXIS_READ_COMMAND_COUNTER 0
@@ -93,7 +84,7 @@ proc read_axis_rx_hw_packet {internal_pipe hw_to_sim_pipe sim_to_hw_pipe interna
 }
 
 proc StateLink_AXIS_RX {} {
-	global DEVICE_NAME FULL_PROBES AXIS_RX_SIM_TO_HW_PIPENAME AXIS_RX_HW_TO_SIM_PIPENAME AXIS_INTERNAL_PIPENAME AXIS_READ_COMMAND_COUNTER AXIS_JTAG_AXI_INSTANCE AXIS_JTAG_AXI_LITE_INSTANCE AXIS_VIO_INSTANCE
+	global DEVICE_NAME FULL_PROBES AXIS_INTERNAL_PIPENAME AXIS_READ_COMMAND_COUNTER
 
 	# Read stdin which should contain the following parameters: axis_rx_sim_to_hw_pipename axis_rx_hw_to_sim_pipename axis_jtag_axi axis_jtag_axi_lite axis_vio
 	gets stdin line
@@ -103,12 +94,6 @@ proc StateLink_AXIS_RX {} {
 	set axis_jtag_axi [lindex $params 2]
 	set axis_jtag_axi_lite [lindex $params 3]
 	set axis_vio [lindex $params 4]
-
-	# set axis_rx_sim_to_hw_pipename $AXIS_RX_SIM_TO_HW_PIPENAME
-	# set axis_rx_hw_to_sim_pipename $AXIS_RX_HW_TO_SIM_PIPENAME
-	# set axis_jtag_axi [get_hw_axis -of_objects [get_hw_devices $DEVICE_NAME] -filter "CELL_NAME=~$AXIS_JTAG_AXI_INSTANCE"]
-	# set axis_jtag_axi_lite [get_hw_axis -of_objects [get_hw_devices $DEVICE_NAME] -filter "CELL_NAME=~$AXIS_JTAG_AXI_LITE_INSTANCE"]
-	# set axis_vio [get_hw_vios -of_objects [get_hw_devices $DEVICE_NAME] -filter "CELL_NAME=~$AXIS_VIO_INSTANCE"]
 
 	set axis_internal_pipename ${AXIS_INTERNAL_PIPENAME}_[pid]
 
@@ -131,10 +116,6 @@ proc StateLink_AXIS_RX {} {
 		exec mkfifo $axis_internal_pipename
 	}
 	set axis_internal_pipe [open $axis_internal_pipename {RDONLY NONBLOCK}]
-
-	# Direct the packets to the AXIS FIFO # Currently, packets are directed by the decouple signal
-	# set_property OUTPUT_VALUE 1 [get_hw_probes "memcached_i/StateLink_AXIS_0/S00_AXIS_tdest_1" -of_objects [get_hw_vios -of_objects [get_hw_devices "xcku040_0"] -filter "CELL_NAME=~memcached_i/StateLink_AXIS_0/vio_1"]]
-	# commit_hw_vio [get_hw_probes "memcached_i/StateLink_AXIS_0/S00_AXIS_tdest_1" -of_objects [get_hw_vios -of_objects [get_hw_devices "xcku040_0"] -filter "CELL_NAME=~memcached_i/StateLink_AXIS_0/vio_1"]]
 
 	# Receive Data FIFO Reset Register (RDFR) @0x18 <-- Input 0000_00A5: Reset Receive FIFO
 	create_hw_axi_txn wr_txn [get_hw_axis $axis_jtag_axi_lite] -address 44A0_0018 -len 1 -type write -force -data 0000_00A5
