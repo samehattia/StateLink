@@ -45,7 +45,7 @@ public:
 	// Static Variables/functions for AXIS timestamp mode
 	static long long current_time;
 	static std::priority_queue<long long, std::vector<long long>, std::greater<long long>> timestamp_min_heap;
-	static void fast_forward_current_time();
+	static void advance_current_time();
 
 	std::mutex mtx;
 	std::thread rx_thread;

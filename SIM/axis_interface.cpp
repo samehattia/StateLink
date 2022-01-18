@@ -48,8 +48,12 @@ void process_axis_tx_message(std::string message, void*) {
 long long axis_interface::current_time = 0;
 std::priority_queue<long long, std::vector<long long>, std::greater<long long>> axis_interface::timestamp_min_heap;
 
-void axis_interface::fast_forward_current_time() {
+void axis_interface::advance_current_time() {
 
+	// Increment current time
+	current_time++;
+
+	// Check if we need to fast forward current time
 	if (timestamp_min_heap.empty())
 		return;
 
@@ -57,11 +61,11 @@ void axis_interface::fast_forward_current_time() {
 
 	if ((smallest_timestamp - current_time) > MAX_IDLE_CYCLES) {
 		// Fast forward current time
-		//vpi_printf( (char*)"\tAXIS Interface: fast forwarding current time, old current time %lld, next timestamp %x, skipped %lld cycles\n", current_time, smallest_timestamp, (smallest_timestamp - current_time));
+		//vpi_printf( (char*)"\tAXIS Interface: fast forwarding current time, old current time %lld, next timestamp %lld, skipped %lld cycles\n", current_time, smallest_timestamp, (smallest_timestamp - current_time));
 		current_time = smallest_timestamp - MAX_IDLE_CYCLES;
 	}
 	else if (current_time > smallest_timestamp) {
-		vpi_printf( (char*)"\tWARNING: AXIS Interface: Current time is a head of a timestamp, current time %lld, timestamp %x\n", current_time, smallest_timestamp);
+		vpi_printf( (char*)"\tWARNING: AXIS Interface: Current time is a head of a timestamp, current time %lld, timestamp %lld\n", current_time, smallest_timestamp);
 	}
 }
 
@@ -89,7 +93,7 @@ void axis_interface::rx_transaction() {
 	// Should be incremented every cycle and since it is shared variable,
 	// It is incremented only by one RX interface and shared among all other interfaces
 	if (axis_timestamp_mode && interface_id == 0)
-		current_time++;
+		advance_current_time();
 
 	rx_packet_delay_counter--;
 	if (rx_packet_delay_counter < 0)
@@ -134,9 +138,8 @@ void axis_interface::rx_transaction() {
 
 				rx_hw_packet_timestamp = stoll(next_packet.substr(next_packet.length() - (flit_width * 2), flit_width * 2), nullptr, 16);
 
-				// Add the time stamp to the shared min_heap and check if we need to fast forward the current time
+				// Add the time stamp to the shared min_heap
 				timestamp_min_heap.push(rx_hw_packet_timestamp);
-				fast_forward_current_time();
 			}
 
 			// Check if the packet should be fed to the DUT now
@@ -166,11 +169,25 @@ void axis_interface::rx_transaction() {
 		if (axis_timestamp_mode) {
 			rx_hw_packet = rx_hw_packet.substr(0, rx_hw_packet.length() - (flit_width * 2));
 			rx_hw_packet_length -= flit_width;
-			rx_hw_packet_timestamp = 0;
 
-			// Pop the timestamp from the min_heap and check if we need to fast_forward current time
+			// Pop the timestamp from the min_heap
 			timestamp_min_heap.pop();
-			fast_forward_current_time();
+
+			// if transaction queue is not empty, add a timestamp in the shared min_heap
+			if (!transactions.empty()) {
+				// In the timestamp mode, the first flit of the packet is a timestamp
+				mtx.lock();
+				std::string next_packet = transactions.front();
+				mtx.unlock();
+
+				rx_hw_packet_timestamp = stoll(next_packet.substr(next_packet.length() - (flit_width * 2), flit_width * 2), nullptr, 16);
+
+				// Add the time stamp to the shared min_heap
+				timestamp_min_heap.push(rx_hw_packet_timestamp);
+			}
+			else {
+				rx_hw_packet_timestamp = 0;
+			}
 		}
 
 		new_flit = true;
