@@ -8,7 +8,8 @@ import StateLink_AXI
 import StateLink_AXIS
 
 AXI_LINK = 1
-AXIS_LINK = 1
+AXIS_TX_LINK = 1
+AXIS_RX_LINK = 1
 
 AXI_TIMESTAMP_MODE = 1
 
@@ -62,14 +63,19 @@ def StateLink ():
 
 		eth_axi_id += 1
 
-	for i in range(AXIS_LINK):
+	for i in range(AXIS_TX_LINK):
 		axis_tx_sim_to_hw_pipename = AXIS_TX_SIM_TO_HW_PIPENAME + "_" + str(i)
 		axis_tx_hw_to_sim_pipename = AXIS_TX_HW_TO_SIM_PIPENAME + "_" + str(i)
 
+		StateLink_AXIS.setup_axis_tx_link(loop, axis_tx_sim_to_hw_pipename, axis_tx_hw_to_sim_pipename, eth_axi_socket, eth_axi_id, counters)
+
+		eth_axi_id += 1
+
+	eth_axi_id -= AXIS_TX_LINK
+
+	for i in range(AXIS_RX_LINK):
 		axis_rx_sim_to_hw_pipename = AXIS_RX_SIM_TO_HW_PIPENAME + "_" + str(i)
 		axis_rx_hw_to_sim_pipename = AXIS_RX_HW_TO_SIM_PIPENAME + "_" + str(i)
-
-		StateLink_AXIS.setup_axis_tx_link(loop, axis_tx_sim_to_hw_pipename, axis_tx_hw_to_sim_pipename, eth_axi_socket, eth_axi_id, counters)
 
 		# Create Ethernet AXIS RX Socket
 		eth_axis_rx_socket = socket(AF_PACKET, SOCK_RAW, htons(int(ETH_TYPE.hex(), 16) + eth_axi_id))
@@ -89,8 +95,10 @@ def StateLink ():
 		print(str(counters.AXI_WRITE_COMMAND_COUNTER) + " AXI Write Transactions")
 		print(str(counters.AXI_READ_COMMAND_COUNTER) + " AXI Read Transactions")
 
-	if AXIS_LINK != 0:
+	if AXIS_TX_LINK != 0:
 		print(str(counters.AXIS_WRITE_COMMAND_COUNTER) + " AXIS Send Transactions")
+
+	if AXIS_RX_LINK != 0:
 		print(str(counters.AXIS_READ_COMMAND_COUNTER) + " AXIS Receive Transactions")
 
 def main():

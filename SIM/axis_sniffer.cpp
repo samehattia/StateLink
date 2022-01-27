@@ -186,22 +186,51 @@ PLI_INT32 setup_axis_sniffer(p_cb_data cb_data) {
 		int tx_axis_interface_counter = 0;
 		int rx_axis_interface_counter = 0;
 		for (auto& axis_interface_entry: axis_interface_map) {
-			s_cb_data cb_clk;
-			s_vpi_value cb_value_s;
-			s_vpi_time cb_time_s;
+			if (axis_interface_entry.second.master) { // TX AXIS
+				s_cb_data cb_clk;
+				s_vpi_value cb_value_s;
+				s_vpi_time cb_time_s;
 
-			// get a handle for save signal, and set the callback function save_state 
-			cb_clk.reason = cbValueChange;
-			cb_clk.cb_rtn = axis_sniffer;
-			cb_clk.obj = clk_handle; //axis_interface_entry.second.awvalid;
-			cb_clk.value = &cb_value_s;
-			cb_clk.time = &cb_time_s;
-			cb_time_s.type = vpiSuppressTime;
-			cb_value_s.format = vpiIntVal;
-			cb_clk.user_data = (PLI_BYTE8*)(axis_interface_entry.first.c_str());
-			vpi_register_cb(&cb_clk);
+				// get a handle for save signal, and set the callback function save_state 
+				cb_clk.reason = cbValueChange;
+				cb_clk.cb_rtn = axis_sniffer;
+				cb_clk.obj = clk_handle; //axis_interface_entry.second.awvalid;
+				cb_clk.value = &cb_value_s;
+				cb_clk.time = &cb_time_s;
+				cb_time_s.type = vpiSuppressTime;
+				cb_value_s.format = vpiIntVal;
+				cb_clk.user_data = (PLI_BYTE8*)(axis_interface_entry.first.c_str());
+				vpi_register_cb(&cb_clk);
 
+				std::string sim_to_hw_pipename = std::string(AXIS_TX_SIM_TO_HW_PIPENAME) + '_' + std::to_string(tx_axis_interface_counter);
+				std::string hw_to_sim_pipename = std::string(AXIS_TX_HW_TO_SIM_PIPENAME) + '_' + std::to_string(tx_axis_interface_counter);
+				vpi_printf( (char*)"AXIS TX interface %s is connected to %s and %s\n", axis_interface_entry.first.c_str(), sim_to_hw_pipename.c_str(), hw_to_sim_pipename.c_str());
+
+				axis_interface_entry.second.sim_to_hw_pipe = setup_send_channel(sim_to_hw_pipename);
+				axis_interface_entry.second.hw_to_sim_pipe = setup_recv_channel(hw_to_sim_pipename);
+				axis_interface_entry.second.interface_id = tx_axis_interface_counter;
+
+				tx_axis_interface_counter++;
+			}
+		}
+
+		for (auto& axis_interface_entry: axis_interface_map) {
 			if (!axis_interface_entry.second.master) { // RX AXIS
+				s_cb_data cb_clk;
+				s_vpi_value cb_value_s;
+				s_vpi_time cb_time_s;
+
+				// get a handle for save signal, and set the callback function save_state 
+				cb_clk.reason = cbValueChange;
+				cb_clk.cb_rtn = axis_sniffer;
+				cb_clk.obj = clk_handle; //axis_interface_entry.second.awvalid;
+				cb_clk.value = &cb_value_s;
+				cb_clk.time = &cb_time_s;
+				cb_time_s.type = vpiSuppressTime;
+				cb_value_s.format = vpiIntVal;
+				cb_clk.user_data = (PLI_BYTE8*)(axis_interface_entry.first.c_str());
+				vpi_register_cb(&cb_clk);
+
 				std::string sim_to_hw_pipename = std::string(AXIS_RX_SIM_TO_HW_PIPENAME) + '_' + std::to_string(rx_axis_interface_counter);
 				std::string hw_to_sim_pipename = std::string(AXIS_RX_HW_TO_SIM_PIPENAME) + '_' + std::to_string(rx_axis_interface_counter);
 				vpi_printf( (char*)"AXIS RX interface %s is connected to %s and %s\n", axis_interface_entry.first.c_str(), sim_to_hw_pipename.c_str(), hw_to_sim_pipename.c_str());
@@ -212,17 +241,6 @@ PLI_INT32 setup_axis_sniffer(p_cb_data cb_data) {
 				axis_interface_entry.second.interface_id = rx_axis_interface_counter;
 
 				rx_axis_interface_counter++;
-			}
-			else { // TX AXIS
-				std::string sim_to_hw_pipename = std::string(AXIS_TX_SIM_TO_HW_PIPENAME) + '_' + std::to_string(tx_axis_interface_counter);
-				std::string hw_to_sim_pipename = std::string(AXIS_TX_HW_TO_SIM_PIPENAME) + '_' + std::to_string(tx_axis_interface_counter);
-				vpi_printf( (char*)"AXIS TX interface %s is connected to %s and %s\n", axis_interface_entry.first.c_str(), sim_to_hw_pipename.c_str(), hw_to_sim_pipename.c_str());
-
-				axis_interface_entry.second.sim_to_hw_pipe = setup_send_channel(sim_to_hw_pipename);
-				axis_interface_entry.second.hw_to_sim_pipe = setup_recv_channel(hw_to_sim_pipename);
-				axis_interface_entry.second.interface_id = tx_axis_interface_counter;
-
-				tx_axis_interface_counter++;
 			}
 		}
 	}
