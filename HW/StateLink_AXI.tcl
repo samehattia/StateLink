@@ -88,6 +88,9 @@ proc setup_axi_link {sim_to_hw_pipename hw_to_sim_pipename jtag_axi} {
 	fconfigure $axi_sim_to_hw_pipe -blocking 0
 
 	puts "Opening AXI_HW_TO_SIM_PIPE"
+	if {![file exists $hw_to_sim_pipename]} {
+		exec mkfifo $hw_to_sim_pipename
+	}
 	set axi_hw_to_sim_pipe [open $hw_to_sim_pipename w]
 
 	fileevent $axi_sim_to_hw_pipe readable [list read_axi_sim_to_hw_pipe $axi_sim_to_hw_pipe $axi_hw_to_sim_pipe $hw_to_sim_pipename $jtag_axi]

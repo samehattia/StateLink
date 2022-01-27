@@ -130,6 +130,8 @@ def setup_axis_rx_link (loop, sim_to_hw_pipename, hw_to_sim_pipename, eth_axis_r
 	os.set_blocking(axis_rx_sim_to_hw_pipe.fileno(), False)
 
 	print("Opening AXIS_RX_HW_TO_SIM_PIPE")
+	if not os.path.exists(hw_to_sim_pipename):
+		os.mkfifo(hw_to_sim_pipename)
 	axis_rx_hw_to_sim_pipe = open(hw_to_sim_pipename, "w")
 
 	# Alternatives for fileevent is to use threads, poll, aysncio
@@ -151,6 +153,8 @@ def setup_axis_tx_link (loop, sim_to_hw_pipename, hw_to_sim_pipename, eth_axi_so
 	os.set_blocking(axis_tx_sim_to_hw_pipe.fileno(), False)
 
 	print("Opening AXIS_TX_HW_TO_SIM_PIPE")
+	if not os.path.exists(hw_to_sim_pipename):
+		os.mkfifo(hw_to_sim_pipename)
 	axis_tx_hw_to_sim_pipe = open(hw_to_sim_pipename, "w")
 
 	# Alternatives for fileevent is to use threads, poll, aysncio

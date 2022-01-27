@@ -12,8 +12,10 @@ using namespace std;
 #define MAX_RECV_MSG_LEN 5000 //1500 MTU * 2 Hex AND 256 Burst * 8 Bytes * 2 Hex
 
 int setup_recv_channel(string channel_name) {
-	// Create FIFO
-	mkfifo(channel_name.c_str(), 0666);
+	// Wait for FIFO to be created
+	while (access(channel_name.c_str(), F_OK)) {
+		sleep(1);
+	}
 
 	// Open FIFO for read only
 	vpi_printf( (char*)"  Opening HW_TO_SIM_PIPE: %s\n", channel_name.c_str());

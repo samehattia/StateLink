@@ -110,6 +110,9 @@ proc StateLink_AXIS_RX {} {
 	fconfigure $axis_rx_sim_to_hw_pipe -blocking 0
 
 	puts "Opening AXIS_RX_HW_TO_SIM_PIPE"
+	if {![file exists $hw_to_sim_pipename]} {
+		exec mkfifo $hw_to_sim_pipename
+	}
 	set axis_rx_hw_to_sim_pipe [open $axis_rx_hw_to_sim_pipename w]
 
 	if {![file exists $axis_internal_pipename]} {

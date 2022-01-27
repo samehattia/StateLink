@@ -60,6 +60,9 @@ proc setup_axis_tx_link {sim_to_hw_pipename hw_to_sim_pipename jtag_axi jtag_axi
 	fconfigure $axis_tx_sim_to_hw_pipe -blocking 0
 
 	puts "Opening AXIS_TX_HW_TO_SIM_PIPE"
+	if {![file exists $hw_to_sim_pipename]} {
+		exec mkfifo $hw_to_sim_pipename
+	}
 	set axis_tx_hw_to_sim_pipe [open $hw_to_sim_pipename w]
 
 	fileevent $axis_tx_sim_to_hw_pipe readable [list read_axis_tx_sim_to_hw_pipe $axis_tx_sim_to_hw_pipe $hw_to_sim_pipename $jtag_axi $jtag_axi_lite]

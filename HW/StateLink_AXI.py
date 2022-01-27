@@ -139,6 +139,8 @@ def setup_axi_link (loop, sim_to_hw_pipename, hw_to_sim_pipename, eth_axi_socket
 	os.set_blocking(axi_sim_to_hw_pipe.fileno(), False)
 
 	print("Opening AXI_HW_TO_SIM_PIPE")
+	if not os.path.exists(hw_to_sim_pipename):
+		os.mkfifo(hw_to_sim_pipename)
 	axi_hw_to_sim_pipe = open(hw_to_sim_pipename, "w")
 
 	# Alternatives for fileevent is to use threads, poll, aysncio
