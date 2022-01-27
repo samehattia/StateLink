@@ -8,8 +8,8 @@
 #include <stdint.h>
 
 // Number of StateLink IPs (including both StateLink_AXI and StateLink_AXIS). 
-// Valid range 1-4
-#define NUM_STATELINK_IPs 2
+// Valid range 1-8
+#define NUM_STATELINK_IPs 8
 
 // Flag to turn on MAC protocol detector
 // 0 means data_in packets are just Ethernet_AXI packets, no need to check them and no data_out port
@@ -47,6 +47,22 @@ void ethernet_axi_splitter (hls::stream<axis_word>& data_in,
 	, hls::stream<axis_word>& ethernet_axi_3
 #endif
 
+#if NUM_STATELINK_IPs > 4
+	, hls::stream<axis_word>& ethernet_axi_4
+#endif
+
+#if NUM_STATELINK_IPs > 5
+	, hls::stream<axis_word>& ethernet_axi_5
+#endif
+
+#if NUM_STATELINK_IPs > 6
+	, hls::stream<axis_word>& ethernet_axi_6
+#endif
+
+#if NUM_STATELINK_IPs > 7
+	, hls::stream<axis_word>& ethernet_axi_7
+#endif
+
 #if MAC_PROTOCOL_DETECTOR
 	, hls::stream<axis_word>& data_out
 #endif
@@ -69,6 +85,22 @@ void ethernet_axi_splitter (hls::stream<axis_word>& data_in,
 
 #if NUM_STATELINK_IPs > 3
 	#pragma HLS INTERFACE axis port=ethernet_axi_3
+#endif
+
+#if NUM_STATELINK_IPs > 4
+	#pragma HLS INTERFACE axis port=ethernet_axi_4
+#endif
+
+#if NUM_STATELINK_IPs > 5
+	#pragma HLS INTERFACE axis port=ethernet_axi_5
+#endif
+
+#if NUM_STATELINK_IPs > 6
+	#pragma HLS INTERFACE axis port=ethernet_axi_6
+#endif
+
+#if NUM_STATELINK_IPs > 7
+	#pragma HLS INTERFACE axis port=ethernet_axi_7
 #endif
 
 #if MAC_PROTOCOL_DETECTOR
@@ -125,6 +157,26 @@ void ethernet_axi_splitter (hls::stream<axis_word>& data_in,
 							ethernet_axi_3.write(prev_word);
 						#endif
 
+						#if NUM_STATELINK_IPs > 4
+						else if (mac_type == Ethernet_AXI && ethernet_axi_id == 4)
+							ethernet_axi_4.write(prev_word);
+						#endif
+
+						#if NUM_STATELINK_IPs > 5
+						else if (mac_type == Ethernet_AXI && ethernet_axi_id == 5)
+							ethernet_axi_5.write(prev_word);
+						#endif
+
+						#if NUM_STATELINK_IPs > 6
+						else if (mac_type == Ethernet_AXI && ethernet_axi_id == 6)
+							ethernet_axi_6.write(prev_word);
+						#endif
+
+						#if NUM_STATELINK_IPs > 7
+						else if (mac_type == Ethernet_AXI && ethernet_axi_id == 7)
+							ethernet_axi_7.write(prev_word);
+						#endif
+
 						#if MAC_PROTOCOL_DETECTOR
 						else if (mac_type != DROP)
 							data_out.write(prev_word);
@@ -159,6 +211,26 @@ void ethernet_axi_splitter (hls::stream<axis_word>& data_in,
 			#if NUM_STATELINK_IPs > 3
 			else if (mac_type == Ethernet_AXI && ethernet_axi_id == 3)
 				ethernet_axi_3.write(prev_word);
+			#endif
+
+			#if NUM_STATELINK_IPs > 4
+			else if (mac_type == Ethernet_AXI && ethernet_axi_id == 4)
+				ethernet_axi_4.write(prev_word);
+			#endif
+
+			#if NUM_STATELINK_IPs > 5
+			else if (mac_type == Ethernet_AXI && ethernet_axi_id == 5)
+				ethernet_axi_5.write(prev_word);
+			#endif
+
+			#if NUM_STATELINK_IPs > 6
+			else if (mac_type == Ethernet_AXI && ethernet_axi_id == 6)
+				ethernet_axi_6.write(prev_word);
+			#endif
+
+			#if NUM_STATELINK_IPs > 7
+			else if (mac_type == Ethernet_AXI && ethernet_axi_id == 7)
+				ethernet_axi_7.write(prev_word);
 			#endif
 
 			#if MAC_PROTOCOL_DETECTOR
