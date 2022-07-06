@@ -3,7 +3,7 @@ set Project     ProjEthernetAXI
 set Solution    SolutionX
 set Device      "xcku040-ffva1156-2-e"
 set Flow        ""
-set Clock       3.3
+set Clock       2
 set DefaultFlag 1
 
 #### main part

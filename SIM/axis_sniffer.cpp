@@ -16,6 +16,10 @@
 #include "message.h"
 #include "utils.h"
 
+int AXIS_RX_FIRST_PACKET_DELAY = 45000; // minimum number of cycles before feeding the first packet
+int AXIS_RX_PACKET_DELAY = 150; // minimum number of cycles between each packet
+int MAX_IDLE_CYCLES = 150; // maximum number of idle cycles in timestamp mode
+
 std::unordered_map<std::string,axis_interface> axis_interface_map;
 
 std::chrono::duration<double, std::milli> axis_sniffer_duration;
@@ -82,20 +86,47 @@ PLI_INT32 setup_axis_sniffer(p_cb_data cb_data) {
 	// read module name
 	fs >> module_name;
 
-	// read StateLink parameters which are preceded by "#StateLink"
-	// current parameters: AXIS_RX_FIRST_PACKET_DELAY, AXIS_RX_PACKET_DELAY
-	/*string input_string;
+	// read StateLink parameters which are preceded by "#StateLink_"
+	// current parameters: AXIS_RX_FIRST_PACKET_DELAY, AXIS_RX_PACKET_DELAY, MAX_IDLE_CYCLES
+	// and read StateLink AXIS interface names (optional, if provided, the provided interface order will be used)
+	std::vector<std::string> axis_rx_interface_names;
+	std::vector<std::string> axis_tx_interface_names;
+
+	std::string input_string;
 	int input_integer;
 	while(fs.peek()!= EOF) {
 		fs >> input_string;
-		if (input_string == "#StateLink") {
+		if (input_string == "#StateLink_AXIS_RX_FIRST_PACKET_DELAY") {
 			fs >> input_integer;
 			AXIS_RX_FIRST_PACKET_DELAY = input_integer;
-			axis_rx_packet_delay_counter = AXIS_RX_FIRST_PACKET_DELAY;
+		}
+		if (input_string == "#StateLink_AXIS_RX_PACKET_DELAY") {
 			fs >> input_integer;
 			AXIS_RX_PACKET_DELAY = input_integer;
 		}
-	}*/
+		if (input_string == "#StateLink_MAX_IDLE_CYCLES") {
+			fs >> input_integer;
+			MAX_IDLE_CYCLES = input_integer;
+		}
+		if (input_string == "#StateLink_AXIS_RX") {
+			while(fs.peek()!= EOF) {
+				fs >> input_string;
+				vpi_printf( (char*)"DEBUG RX %s\n", input_string.c_str());
+				if (input_string == "#")
+					break;
+				axis_rx_interface_names.push_back(input_string);
+			}
+		}
+		if (input_string == "#StateLink_AXIS_TX") {
+			while(fs.peek()!= EOF) {
+				fs >> input_string;
+				vpi_printf( (char*)"DEBUG TX %s\n", input_string.c_str());
+				if (input_string == "#")
+					break;
+				axis_tx_interface_names.push_back(input_string);
+			}
+		}
+	}
 
 	// close parameters file
 	fs.close();
@@ -160,6 +191,7 @@ PLI_INT32 setup_axis_sniffer(p_cb_data cb_data) {
 
 				if (axis_interface_port == "tdata") {
 					axis_interface_map[axis_interface_name].ports.tdata = net_handle;
+					axis_interface_map[axis_interface_name].interface_width = vpi_get(vpiSize, port_handle);
 					// Check if it is an input or output port to set master flag
 					if (vpi_get(vpiDirection, port_handle) == vpiOutput)
 						axis_interface_map[axis_interface_name].master = true;
@@ -182,68 +214,87 @@ PLI_INT32 setup_axis_sniffer(p_cb_data cb_data) {
 				vpi_printf( (char*)"  %s\n", error_info.message);
 		}
 
+		if (axis_rx_interface_names.empty() && axis_tx_interface_names.empty()) {
+			for (auto& axis_interface_entry: axis_interface_map) {
+				if (axis_interface_entry.second.master) // TX AXIS
+					axis_tx_interface_names.push_back(axis_interface_entry.first);
+				else
+					axis_rx_interface_names.push_back(axis_interface_entry.first);
+			}
+		}
+
 		// We can either register a callback using vpi_register_cb()
 		// or a system task using vpi_register_systf() that can be called from Verilog (has to be called after all events are processed (using cbReadWriteSynch??))
 		// The callback can be called due to a specific signal value change or every clock cycle using cbValueChange (Do we need cbReadWriteSynch ??)
 		int tx_axis_interface_counter = 0;
 		int rx_axis_interface_counter = 0;
-		for (auto& axis_interface_entry: axis_interface_map) {
-			if (axis_interface_entry.second.master) { // TX AXIS
-				s_cb_data cb_clk;
-				s_vpi_value cb_value_s;
-				s_vpi_time cb_time_s;
-
-				// get a handle for save signal, and set the callback function save_state 
-				cb_clk.reason = cbValueChange;
-				cb_clk.cb_rtn = axis_sniffer;
-				cb_clk.obj = clk_handle; //axis_interface_entry.second.awvalid;
-				cb_clk.value = &cb_value_s;
-				cb_clk.time = &cb_time_s;
-				cb_time_s.type = vpiSuppressTime;
-				cb_value_s.format = vpiIntVal;
-				cb_clk.user_data = (PLI_BYTE8*)(axis_interface_entry.first.c_str());
-				vpi_register_cb(&cb_clk);
-
-				std::string sim_to_hw_pipename = std::string(AXIS_TX_SIM_TO_HW_PIPENAME) + '_' + std::to_string(tx_axis_interface_counter);
-				std::string hw_to_sim_pipename = std::string(AXIS_TX_HW_TO_SIM_PIPENAME) + '_' + std::to_string(tx_axis_interface_counter);
-				vpi_printf( (char*)"AXIS TX interface %s is connected to %s and %s\n", axis_interface_entry.first.c_str(), sim_to_hw_pipename.c_str(), hw_to_sim_pipename.c_str());
-
-				axis_interface_entry.second.sim_to_hw_pipe = setup_send_channel(sim_to_hw_pipename);
-				axis_interface_entry.second.hw_to_sim_pipe = setup_recv_channel(hw_to_sim_pipename);
-				axis_interface_entry.second.interface_id = tx_axis_interface_counter;
-
-				tx_axis_interface_counter++;
+		for (auto& interface_name: axis_tx_interface_names) {
+			auto axis_interface_entry = axis_interface_map.find(interface_name);
+			
+			if (axis_interface_entry == axis_interface_map.end()) {
+				vpi_printf( (char*)"ERROR: AXIS TX interface %s not found\n", interface_name.c_str());
+				vpi_control(vpiFinish, 1);
 			}
+
+			s_cb_data cb_clk;
+			s_vpi_value cb_value_s;
+			s_vpi_time cb_time_s;
+
+			// get a handle for save signal, and set the callback function save_state 
+			cb_clk.reason = cbValueChange;
+			cb_clk.cb_rtn = axis_sniffer;
+			cb_clk.obj = clk_handle; //axis_interface_entry->second.awvalid;
+			cb_clk.value = &cb_value_s;
+			cb_clk.time = &cb_time_s;
+			cb_time_s.type = vpiSuppressTime;
+			cb_value_s.format = vpiIntVal;
+			cb_clk.user_data = (PLI_BYTE8*)(axis_interface_entry->first.c_str());
+			vpi_register_cb(&cb_clk);
+
+			std::string sim_to_hw_pipename = std::string(AXIS_TX_SIM_TO_HW_PIPENAME) + '_' + std::to_string(tx_axis_interface_counter);
+			std::string hw_to_sim_pipename = std::string(AXIS_TX_HW_TO_SIM_PIPENAME) + '_' + std::to_string(tx_axis_interface_counter);
+			vpi_printf( (char*)"AXIS TX interface %s is connected to %s and %s\n", axis_interface_entry->first.c_str(), sim_to_hw_pipename.c_str(), hw_to_sim_pipename.c_str());
+
+			axis_interface_entry->second.sim_to_hw_pipe = setup_send_channel(sim_to_hw_pipename);
+			axis_interface_entry->second.hw_to_sim_pipe = setup_recv_channel(hw_to_sim_pipename);
+			axis_interface_entry->second.interface_id = tx_axis_interface_counter;
+
+			tx_axis_interface_counter++;
 		}
 
-		for (auto& axis_interface_entry: axis_interface_map) {
-			if (!axis_interface_entry.second.master) { // RX AXIS
-				s_cb_data cb_clk;
-				s_vpi_value cb_value_s;
-				s_vpi_time cb_time_s;
+		for (auto& interface_name: axis_rx_interface_names) {
+			auto axis_interface_entry = axis_interface_map.find(interface_name);
 
-				// get a handle for save signal, and set the callback function save_state 
-				cb_clk.reason = cbValueChange;
-				cb_clk.cb_rtn = axis_sniffer;
-				cb_clk.obj = clk_handle; //axis_interface_entry.second.awvalid;
-				cb_clk.value = &cb_value_s;
-				cb_clk.time = &cb_time_s;
-				cb_time_s.type = vpiSuppressTime;
-				cb_value_s.format = vpiIntVal;
-				cb_clk.user_data = (PLI_BYTE8*)(axis_interface_entry.first.c_str());
-				vpi_register_cb(&cb_clk);
-
-				std::string sim_to_hw_pipename = std::string(AXIS_RX_SIM_TO_HW_PIPENAME) + '_' + std::to_string(rx_axis_interface_counter);
-				std::string hw_to_sim_pipename = std::string(AXIS_RX_HW_TO_SIM_PIPENAME) + '_' + std::to_string(rx_axis_interface_counter);
-				vpi_printf( (char*)"AXIS RX interface %s is connected to %s and %s\n", axis_interface_entry.first.c_str(), sim_to_hw_pipename.c_str(), hw_to_sim_pipename.c_str());
-
-				axis_interface_entry.second.sim_to_hw_pipe = setup_send_channel(sim_to_hw_pipename);
-				axis_interface_entry.second.hw_to_sim_pipe = setup_recv_channel(hw_to_sim_pipename);
-				axis_interface_entry.second.start_rx_thread();
-				axis_interface_entry.second.interface_id = rx_axis_interface_counter;
-
-				rx_axis_interface_counter++;
+			if (axis_interface_entry == axis_interface_map.end()) {
+				vpi_printf( (char*)"ERROR: AXIS RX interface %s not found\n", interface_name.c_str());
+				vpi_control(vpiFinish, 1);
 			}
+
+			s_cb_data cb_clk;
+			s_vpi_value cb_value_s;
+			s_vpi_time cb_time_s;
+
+			// get a handle for save signal, and set the callback function save_state 
+			cb_clk.reason = cbValueChange;
+			cb_clk.cb_rtn = axis_sniffer;
+			cb_clk.obj = clk_handle; //axis_interface_entry->second.awvalid;
+			cb_clk.value = &cb_value_s;
+			cb_clk.time = &cb_time_s;
+			cb_time_s.type = vpiSuppressTime;
+			cb_value_s.format = vpiIntVal;
+			cb_clk.user_data = (PLI_BYTE8*)(axis_interface_entry->first.c_str());
+			vpi_register_cb(&cb_clk);
+
+			std::string sim_to_hw_pipename = std::string(AXIS_RX_SIM_TO_HW_PIPENAME) + '_' + std::to_string(rx_axis_interface_counter);
+			std::string hw_to_sim_pipename = std::string(AXIS_RX_HW_TO_SIM_PIPENAME) + '_' + std::to_string(rx_axis_interface_counter);
+			vpi_printf( (char*)"AXIS RX interface %s is connected to %s and %s\n", axis_interface_entry->first.c_str(), sim_to_hw_pipename.c_str(), hw_to_sim_pipename.c_str());
+
+			axis_interface_entry->second.sim_to_hw_pipe = setup_send_channel(sim_to_hw_pipename);
+			axis_interface_entry->second.hw_to_sim_pipe = setup_recv_channel(hw_to_sim_pipename);
+			axis_interface_entry->second.start_rx_thread();
+			axis_interface_entry->second.interface_id = rx_axis_interface_counter;
+
+			rx_axis_interface_counter++;
 		}
 	}
 

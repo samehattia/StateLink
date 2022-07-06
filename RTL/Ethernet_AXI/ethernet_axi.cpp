@@ -30,8 +30,8 @@ void ethernet_axi (hls::stream<axis_word>& data_in, hls::stream<axis_word>& data
 #pragma HLS pipeline II=1 enable_flush
 #pragma HLS INTERFACE ap_ctrl_none port=return
 #pragma HLS INTERFACE axis port=data_in
-#pragma HLS INTERFACE port=data_out register axis
-#pragma HLS INTERFACE m_axi port=mem depth=65536 //64KB a page
+#pragma HLS INTERFACE port=data_out axis
+#pragma HLS INTERFACE m_axi port=mem depth=65536 //max_read_burst_length=2 max_write_burst_length=2 num_read_outstanding=1 num_write_outstanding=1//64KB a page
 
 	static ap_uint<1> fsm_state = 0;
 

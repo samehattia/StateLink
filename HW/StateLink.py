@@ -63,6 +63,10 @@ def StateLink ():
 
 		eth_axi_id += 1
 
+	# The Ethernet AXI ID of AXIS interfaces cannot start with 0 to prevent collision 
+	# between the Ethernet AXI socket and the ones created for each RX AXIS interface
+	eth_axi_id = max(eth_axi_id, 1)
+
 	for i in range(AXIS_TX_LINK):
 		axis_tx_sim_to_hw_pipename = AXIS_TX_SIM_TO_HW_PIPENAME + "_" + str(i)
 		axis_tx_hw_to_sim_pipename = AXIS_TX_HW_TO_SIM_PIPENAME + "_" + str(i)
