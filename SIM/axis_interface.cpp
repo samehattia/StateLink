@@ -65,7 +65,18 @@ void axis_interface::advance_current_time() {
 		current_time = smallest_timestamp - MAX_IDLE_CYCLES;
 	}
 	else if (current_time > smallest_timestamp) {
-		vpi_printf( (char*)"\tWARNING: AXIS Interface: Current time is a head of a timestamp, current time %lld, timestamp %lld\n", current_time, smallest_timestamp);
+		// FIXME
+		// When an interface is backpressured, the current time won't advance, so other RX interfaces cannot write their packets
+		// To workaround this, once current time is a head of the smallest timestamp, we get the next smallest timestamp and advance the current time according to it
+		timestamp_min_heap.pop();
+		long long second_smallest_timestamp = timestamp_min_heap.top();
+
+		if ((second_smallest_timestamp - current_time) > MAX_IDLE_CYCLES) {
+			current_time = second_smallest_timestamp - MAX_IDLE_CYCLES;
+		}
+
+		timestamp_min_heap.push(smallest_timestamp);
+		//vpi_printf( (char*)"\tWARNING: AXIS Interface: Current time is a head of a timestamp, current time %lld, timestamp %lld\n", current_time, smallest_timestamp);
 	}
 }
 
@@ -84,6 +95,7 @@ void axis_interface::start_rx_thread() {
 void axis_interface::rx_transaction() {
 
 	int flit_width = interface_width / 8; // in bytes
+	int timestamp_width = 8;
 
 	// new_flit is true, if the last flit is received by the DUT or new packet is received from the board
 	// once true, the new flit will be put on the interface with a valid signal, and the valid signal should not be lowered until the flit is received by the DUT
@@ -123,8 +135,8 @@ void axis_interface::rx_transaction() {
 
 		// If there is no received packets, turn off the valid signal and return
 		if(transactions.empty() ||  rx_packet_delay_counter > 0) {
-			set_signal_value(ports.tvalid, "0");
-			set_signal_value(ports.tlast, "0");
+			set_signal_value(ports.tvalid, "0", false, true);
+			set_signal_value(ports.tlast, "0", false, true);
 			return;
 		}		
 
@@ -136,7 +148,7 @@ void axis_interface::rx_transaction() {
 				std::string next_packet = transactions.front();
 				mtx.unlock();
 
-				rx_hw_packet_timestamp = stoll(next_packet.substr(next_packet.length() - (flit_width * 2), flit_width * 2), nullptr, 16);
+				rx_hw_packet_timestamp = stoll(next_packet.substr(next_packet.length() - (timestamp_width * 2), timestamp_width * 2), nullptr, 16);
 
 				// Add the time stamp to the shared min_heap
 				timestamp_min_heap.push(rx_hw_packet_timestamp);
@@ -144,8 +156,8 @@ void axis_interface::rx_transaction() {
 
 			// Check if the packet should be fed to the DUT now
 			if (rx_hw_packet_timestamp > current_time) {
-				set_signal_value(ports.tvalid, "0");
-				set_signal_value(ports.tlast, "0");
+				set_signal_value(ports.tvalid, "0", false, true);
+				set_signal_value(ports.tlast, "0", false, true);
 				return;
 			}
 		}
@@ -167,8 +179,8 @@ void axis_interface::rx_transaction() {
 
 		// In the timestamp mode, remove the first flit from the packet before feeding it
 		if (axis_timestamp_mode) {
-			rx_hw_packet = rx_hw_packet.substr(0, rx_hw_packet.length() - (flit_width * 2));
-			rx_hw_packet_length -= flit_width;
+			rx_hw_packet = rx_hw_packet.substr(0, rx_hw_packet.length() - (timestamp_width * 2));
+			rx_hw_packet_length -= timestamp_width;
 
 			// Pop the timestamp from the min_heap
 			timestamp_min_heap.pop();
@@ -180,7 +192,7 @@ void axis_interface::rx_transaction() {
 				std::string next_packet = transactions.front();
 				mtx.unlock();
 
-				rx_hw_packet_timestamp = stoll(next_packet.substr(next_packet.length() - (flit_width * 2), flit_width * 2), nullptr, 16);
+				rx_hw_packet_timestamp = stoll(next_packet.substr(next_packet.length() - (timestamp_width * 2), timestamp_width * 2), nullptr, 16);
 
 				// Add the time stamp to the shared min_heap
 				timestamp_min_heap.push(rx_hw_packet_timestamp);
@@ -221,29 +233,21 @@ void axis_interface::rx_transaction() {
 		}
 
 		// Place a flit on the interface
-		set_signal_value(ports.tdata, tdata_hardware_value);
-		set_signal_value(ports.tkeep, tkeep_hardware_value, true);
-		set_signal_value(ports.tlast, tlast_hardware_value);
-		set_signal_value(ports.tvalid, "1");	
+		set_signal_value(ports.tdata, tdata_hardware_value, false, true);
+		set_signal_value(ports.tkeep, tkeep_hardware_value, true, true);
+		set_signal_value(ports.tlast, tlast_hardware_value, false, true);
+		set_signal_value(ports.tvalid, "1", false, true);	
 	}
 	
 }
 
 void axis_interface::tx_transaction() {
 	
-	s_vpi_value current_value;
-	current_value.format = vpiHexStrVal;
+	std::string tdata_value = get_signal_value(ports.tdata);
 
-	vpi_get_value(ports.tdata, &current_value);
-	std::string tdata_value = current_value.value.str;
+	std::string tkeep_value = get_signal_value(ports.tkeep);
 
-	vpi_get_value(ports.tkeep, &current_value);
-	std::string tkeep_value = current_value.value.str;
-
-	current_value.format = vpiIntVal;
-
-	vpi_get_value(ports.tlast, &current_value);
-	int tlast_value = current_value.value.integer;
+	bool tlast_value = get_binary_signal_value(ports.tlast);
 
 	transactions.push(tdata_value);	
 

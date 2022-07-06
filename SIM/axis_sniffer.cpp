@@ -30,13 +30,15 @@ PLI_INT32 axis_sniffer(p_cb_data cb_data) {
 
 	// The negative edge of a posedge clock
 	if (!cb_data->value->value.integer) {
+
+	}
+	// The positve edge of a posedge clock
+	else {
 		// For RX interfaces, get packets from the board and feed them to the interface
 		if (!axis_intf.master) {
 			axis_intf.rx_transaction();
 		}
-	}
-	// The positve edge of a posedge clock
-	else {
+
 		// Check transactions
 		if (check_active_channel(axis_intf.ports.tvalid, axis_intf.ports.tready)) {
 			if (axis_intf.master) {

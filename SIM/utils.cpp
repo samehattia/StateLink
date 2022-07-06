@@ -4,6 +4,9 @@
 
 void set_signal_value(vpiHandle signal, int singal_value, bool delay) {
 
+	if (!signal)
+		return;
+
 	s_vpi_value new_value;
 	new_value.format = vpiIntVal;
 
@@ -22,6 +25,9 @@ void set_signal_value(vpiHandle signal, int singal_value, bool delay) {
 }
 
 void set_signal_value(vpiHandle signal, std::string singal_value, bool binary_string, bool delay) {
+
+	if (!signal)
+		return;
 
 	s_vpi_value new_value;
 	if (binary_string)
@@ -46,6 +52,9 @@ void set_signal_value(vpiHandle signal, std::string singal_value, bool binary_st
 
 std::string get_signal_value(vpiHandle signal) {
 
+	if (!signal)
+		return "";
+
 	std::string signal_value;
 	s_vpi_value current_value;
 	current_value.format = vpiHexStrVal;
@@ -57,6 +66,9 @@ std::string get_signal_value(vpiHandle signal) {
 }
 
 bool get_binary_signal_value(vpiHandle signal) {
+
+	if (!signal)
+		return true;
 
 	std::string signal_value;
 	s_vpi_value current_value;
